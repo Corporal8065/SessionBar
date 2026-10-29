@@ -7,6 +7,7 @@
 #include <vector>
 #include "Theme.h"
 #include "ScreenSpace.h"
+#include "BarLink.h" // v0.2.0 (k)
 class SessionCell;
 class SessionSettingsWindow;
 
@@ -49,12 +50,14 @@ private:
 
     Theme theme_ = midnightKidsTheme();
     ScreenSpace screenSpace_;
+    BarLinkClient linkClient_{ sessionbar::kLinkAppSession }; // v0.2.0 (k)
     sessionbar::ReserveMachine reserveMachine_;
     std::vector<std::unique_ptr<SessionCell>> cells_;
     std::unique_ptr<SessionSettingsWindow> settingsWin_;
 
     juce::Label wordmark_, versionLabel_;
-    juce::TextButton reserveBtn_ { "Reserve" }, settingsBtn_ { "Settings" },
+    juce::TextButton reserveBtn_ { "Reserve" }, linkBtn_ { "Link" }, settingsBtn_ { "Settings" },
+
                      minBtn_ { "-" }, quitBtn_ { "X" };
     juce::ComponentDragger dragger_;
     juce::Rectangle<int> lastSavedBounds_;

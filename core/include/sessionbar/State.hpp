@@ -24,6 +24,7 @@ struct SessionBarState {
     // Window
     bool pinned = true;              // always-on-top: a session bar lives on screen
     bool reserveScreenSpace = false; // family AppBar reservation — strictly opt-in, default OFF
+    bool linkEnabled = false;        // v0.2.0: family linking (snap/drag-follow/shared background) — opt-in, default OFF
     DockEdge dockEdge = DockEdge::Top;
     int windowX = 120, windowY = 24, windowW = 880, windowH = 84;
 };

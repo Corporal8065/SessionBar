@@ -50,7 +50,7 @@ behaviour, and errors recorded here with their actual text, never hidden.
   Midnight Kids palette — verified value-for-value identical to
   MeterBar's default theme (it already was; the old README said
   "verbatim" and the values back it).
-- (j) **UI parity — PARTIAL.** SessionBar already carried the family
+- (j) **UI parity — PARTIAL (one named remainder).** SessionBar already carried the family
   conventions (event-driven reserve machine, on-bar Reserve/Dock
   controls, MeterBar settings idiom). This release aligns the
   remaining content (PRE/POST colours in the family palette).

@@ -152,3 +152,10 @@ with live countdowns. Spec: SPEC.md (Jackson, approved 2026-10-28).
   here, not runtime-proven — this VM is Linux; the Windows field test
   is Jackson's run (same status as MeterBar/TickerBar v0.1).
 - Icons are the family placeholder icons copied from TickerBar.
+
+## Addendum (same day) — (k) family linking landed
+
+Core `sessionbar/BarLink.hpp` + app `BarLink.h` + on-bar Link toggle,
+as detailed in REQUESTS.md (k). Suite after: **268 checks, 0
+failures** (255 + 13 protocol-geometry checks). The multi-process
+behaviour needs a live two-bar field test on Windows.

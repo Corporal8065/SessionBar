@@ -212,7 +212,29 @@ MainComponent::MainComponent() {
     minBtn_.onClick = [this]{ if (auto* w = findParentComponentOfClass<juce::DocumentWindow>())
                                  if (auto* peer = w->getPeer()) peer->setMinimised(true); };
     quitBtn_.onClick = []{ juce::JUCEApplication::getInstance()->systemRequestedQuit(); };
-    for (auto* b : { &reserveBtn_, &settingsBtn_, &minBtn_, &quitBtn_ }) addAndMakeVisible(b);
+    linkBtn_.setClickingTogglesState(true);
+    linkBtn_.setToggleState(state.linkEnabled, juce::dontSendNotification);
+    linkBtn_.setTooltip("Link: snap, drag, dock and share the background with the other family bars (MeterBar / TickerBar) when their Link is on too");
+    linkBtn_.onClick = [this]{ state.linkEnabled = linkBtn_.getToggleState(); saveSettings(); };
+    for (auto* b : { &reserveBtn_, &linkBtn_, &settingsBtn_, &minBtn_, &quitBtn_ }) addAndMakeVisible(b);
+    // v0.2.0 (k): family link wiring (protocol: core BarLink.hpp).
+    // SessionBar's reserve machine is top/bottom-only with int edge
+    // codes — exactly the protocol's dockedEdge ordinal.
+    linkClient_.getBounds = [this]{ return currentWindowBounds(); };
+    linkClient_.setBounds = [this](juce::Rectangle<int> r){
+        if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) w->setBounds(r);
+    };
+    linkClient_.getBg = [this]{ return BarLinkClient::Bg{ (int)state.backgroundStyle, state.backgroundOpacity }; };
+    linkClient_.applyBg = [this](const BarLinkClient::Bg& bg){
+        state.backgroundStyle = (sessionbar::BackgroundStyle)juce::jlimit(0, 2, bg.style);
+        state.backgroundOpacity = juce::jlimit(0.15f, 1.0f, bg.opacity);
+        saveSettings(); repaint();
+    };
+    linkClient_.getDockedEdge = [this]{
+        return reserveMachine_.reserved() ? (state.dockEdge == sessionbar::DockEdge::Top ? 0 : 1) : -1;
+    };
+    linkClient_.isLinked = [this]{ return state.linkEnabled; };
+    linkClient_.start();
 
     settingsWin_ = std::make_unique<SessionSettingsWindow>();
     settingsWin_->content.owner = this;
@@ -249,6 +271,7 @@ void MainComponent::resized() {
     minBtn_.setBounds(r.removeFromRight(26).withSizeKeepingCentre(26, 24));
     settingsBtn_.setBounds(r.removeFromRight(76).withSizeKeepingCentre(72, 24));
     reserveBtn_.setBounds(r.removeFromRight(80).withSizeKeepingCentre(76, 24));
+    linkBtn_.setBounds(r.removeFromRight(56).withSizeKeepingCentre(52, 24));
     const int n = (int)cells_.size();
     if (n > 0) {
         const int gap = 6;
@@ -312,7 +335,7 @@ void MainComponent::saveSettings() {
     settingsstore::save(state);
 }
 
-void MainComponent::settingsChanged() {
+void MainComponent::settingsChanged() { linkClient_.notifyLocalSettings();
     theme_ = themeByName(state.themeName);
     if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) w->setAlwaysOnTop(state.pinned);
     if (reserveBtn_.getToggleState() != state.reserveScreenSpace)
@@ -381,7 +404,7 @@ void MainComponent::syncScreenSpace() {
     if (reserveBtn_.getToggleState() != state.reserveScreenSpace)
         reserveBtn_.setToggleState(state.reserveScreenSpace, juce::dontSendNotification);
 }
-void MainComponent::notifyWindowGeometryChanged() { syncScreenSpace(); }
+void MainComponent::notifyWindowGeometryChanged() { syncScreenSpace(); linkClient_.notifyLocalGeometry(); }
 
 void MainComponent::doArrange() {
 #if JUCE_WINDOWS
