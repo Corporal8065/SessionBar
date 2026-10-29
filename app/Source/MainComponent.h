@@ -12,7 +12,11 @@ class SessionCell;
 class SessionSettingsWindow;
 
 // The bar itself: wordmark on the left, one cell per visible session
-// across the middle, Reserve / Settings / minimise / quit on the right.
+// across the middle, and the family control cluster on the right
+// (v0.2.1: MeterBar's top-right cluster, same buttons in the same
+// order wearing the same colours — Reserve | Link | Arrange |
+// Restore | Dock | Settings | minimise | Quit; the Dock button is
+// new on the bar, it used to live only in Settings).
 // Borderless and always-on-top (state.pinned); drag any non-interactive
 // surface to move it; position + every setting persist to the settings
 // JSON on change. A 1 Hz timer re-evaluates the three session clocks
@@ -46,6 +50,8 @@ private:
     void refreshCells();
     void syncScreenSpace();
     void saveSettings();
+    void applyChrome();   // v0.2.1: MeterBar toolbar colouring for the control cluster
+    void updateDockBtn(); // v0.2.1: the Dock button's label mirrors state.dockEdge
     juce::Rectangle<int> currentWindowBounds() const;
 
     Theme theme_ = midnightKidsTheme();
@@ -56,9 +62,10 @@ private:
     std::unique_ptr<SessionSettingsWindow> settingsWin_;
 
     juce::Label wordmark_, versionLabel_;
-    juce::TextButton reserveBtn_ { "Reserve" }, linkBtn_ { "Link" }, settingsBtn_ { "Settings" },
-
-                     minBtn_ { "-" }, quitBtn_ { "X" };
+    // v0.2.1: the full family cluster (declared in visual order).
+    juce::TextButton reserveBtn_ { "Reserve" }, linkBtn_ { "Link" }, arrangeBtn_ { "Arrange" },
+                     restoreBtn_ { "Restore" }, dockBtn_ { "Dock" }, settingsBtn_ { "Settings" },
+                     minBtn_ { "_" }, quitBtn_ { "Quit" };
     juce::ComponentDragger dragger_;
     juce::Rectangle<int> lastSavedBounds_;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)

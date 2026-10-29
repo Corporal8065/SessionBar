@@ -1,5 +1,48 @@
 # SessionBar — BUILD_LOG
 
+## v0.2.1 — 2026-10-29 (field-test fix round: control cluster + family chrome, arrange alignment, background-link hardening)
+
+- **Field test kit:** `sessionbar-test-kit-v0.2.1.zip` — full tree
+  (minus `.git`/build dirs) under the `sessionbar-app/` prefix; the
+  core suite was rebuilt FROM the shipped kit and run green.
+- **Control cluster (fixes 1 + 4).** The bar's top right now carries
+  MeterBar's toolbar arrangement: **Reserve | Link | Arrange |
+  Restore | Dock | Settings | _ | Quit** — same order and button
+  widths as MeterBar, 26 px tall. Arrange/Restore moved onto the bar
+  (Settings keeps its duplicates); the Dock button is the v0.2.0
+  parity remainder finally on the bar — its label mirrors the
+  current edge and a click flips Top ↔ Bot and snaps. Buttons wear
+  MeterBar's toolbar colours (`applyChrome()`), the version label
+  went 10 → 11 pt, and the window minimum width 560 → 700 (fresh
+  default width 880 → 1060; saved sizes untouched).
+- **Arrange alignment (fix 2).** `groupDockRect` in the pure core
+  only moved a stacked follower along the dock axis; it now aligns
+  the cross axis too (left edges for top/bottom stacks, top edges
+  for left/right). Identical fix + tests in the MeterBar and
+  TickerBar cores, landed on their mains with no version bump
+  tonight (they release tomorrow).
+- **Background linking (fix 3).** The publish/adopt path was traced
+  end to end and three defects were proven in the v0.2.0 client and
+  fixed by extracting the decisions into the pure core
+  (`BgSyncState` / `bgIsLocalChange` / `bgAdoption`): followers
+  echoed adopted backgrounds back as their own publishes; the
+  settings feed force-bumped bgSeq on every interaction; adoption
+  could be starved behind a live peer drag. A fourth defect was
+  MeterBar's host never calling `notifyLocalSettings()` (fixed on
+  its main). SessionBar's applyBg now also rebuilds an open
+  Settings window. All three app clients rewired onto the core
+  decisions (identical modulo namespace). Honest limit: the
+  two-process shared-memory transport can only be proven by the
+  live Windows two-bar test (Link ON in both bars).
+- **Proof:** core suite 268 → **292 checks, 0 failures** (new:
+  cross-axis group-dock alignment incl. size preservation and the
+  unknown-edge case; the bg publish/adopt decision block). App TUs
+  syntax-checked against JUCE 8.0.4 (`MainComponent.cpp`,
+  `Main.cpp`, `ScreenSpace.cpp` — clean). Version stamped 0.2.1 in
+  root/app CMake, `Main.cpp`, the Inno script fallback, the window
+  title and this log. Annotated tag `v0.2.1` triggers the release
+  workflow.
+
 ## v0.2.0 — 2026-10-29 (exchange calendars + New York PRE/POST + family release flow)
 
 - **(g) Exchange calendars.** New pure-core header

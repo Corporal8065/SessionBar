@@ -3,7 +3,7 @@
 #if JUCE_WINDOWS
  #include <windows.h> // native rects for the AppBar sync (physical pixels)
 #endif
-static const char* kVersion = "v0.2.0";
+static const char* kVersion = "v0.2.1";
 
 // =====================================================================
 // SessionCell — one exchange: city, its local clock, state, countdown.
@@ -196,7 +196,7 @@ MainComponent::MainComponent() {
     wordmark_.setText("SessionBar", juce::dontSendNotification);
     wordmark_.setFont(juce::Font(15.f, juce::Font::bold)); wordmark_.setColour(juce::Label::textColourId, theme_.accent);
     versionLabel_.setText(kVersion, juce::dontSendNotification);
-    versionLabel_.setFont(10.f); versionLabel_.setColour(juce::Label::textColourId, theme_.dim);
+    versionLabel_.setFont(11.f); versionLabel_.setColour(juce::Label::textColourId, theme_.dim);
     for (auto* c : { (juce::Component*)&wordmark_, (juce::Component*)&versionLabel_ }) {
         addAndMakeVisible(c);
         c->setInterceptsMouseClicks(false, false); // clicks fall through to the bar drag
@@ -216,7 +216,21 @@ MainComponent::MainComponent() {
     linkBtn_.setToggleState(state.linkEnabled, juce::dontSendNotification);
     linkBtn_.setTooltip("Link: snap, drag, dock and share the background with the other family bars (MeterBar / TickerBar) when their Link is on too");
     linkBtn_.onClick = [this]{ state.linkEnabled = linkBtn_.getToggleState(); saveSettings(); };
-    for (auto* b : { &reserveBtn_, &linkBtn_, &settingsBtn_, &minBtn_, &quitBtn_ }) addAndMakeVisible(b);
+    // v0.2.1: Arrange / Restore / Dock join the bar (MeterBar cluster
+    // parity) — the same actions Settings carries, no longer buried.
+    arrangeBtn_.setTooltip("Arrange windows: slide other windows clear of the bar's docked edge");
+    arrangeBtn_.onClick = [this]{ doArrange(); };
+    restoreBtn_.setTooltip("Restore windows moved by Arrange");
+    restoreBtn_.onClick = [this]{ doRestore(); };
+    dockBtn_.setTooltip("Dock edge: click to move the bar to the other screen edge");
+    dockBtn_.onClick = [this]{
+        state.dockEdge = state.dockEdge == sessionbar::DockEdge::Top ? sessionbar::DockEdge::Bottom
+                                                                     : sessionbar::DockEdge::Top;
+        snapToDockEdge(); // repositions, saves, and refreshes this button's label
+    };
+    updateDockBtn();
+    for (auto* b : { &reserveBtn_, &linkBtn_, &arrangeBtn_, &restoreBtn_, &dockBtn_, &settingsBtn_, &minBtn_, &quitBtn_ }) addAndMakeVisible(b);
+    applyChrome();
     // v0.2.0 (k): family link wiring (protocol: core BarLink.hpp).
     // SessionBar's reserve machine is top/bottom-only with int edge
     // codes — exactly the protocol's dockedEdge ordinal.
@@ -229,6 +243,10 @@ MainComponent::MainComponent() {
         state.backgroundStyle = (sessionbar::BackgroundStyle)juce::jlimit(0, 2, bg.style);
         state.backgroundOpacity = juce::jlimit(0.15f, 1.0f, bg.opacity);
         saveSettings(); repaint();
+        // v0.2.1: an open Settings window must not keep showing the
+        // pre-adoption values — rebuild it so the adopted style /
+        // opacity are what its controls display.
+        if (settingsWin_ && settingsWin_->isVisible()) settingsWin_->content.build();
     };
     linkClient_.getDockedEdge = [this]{
         return reserveMachine_.reserved() ? (state.dockEdge == sessionbar::DockEdge::Top ? 0 : 1) : -1;
@@ -267,11 +285,18 @@ void MainComponent::resized() {
     auto left = r.removeFromLeft(92);
     wordmark_.setBounds(left.removeFromTop(20));
     versionLabel_.setBounds(left.removeFromTop(12));
-    quitBtn_.setBounds(r.removeFromRight(26).withSizeKeepingCentre(26, 24));
-    minBtn_.setBounds(r.removeFromRight(26).withSizeKeepingCentre(26, 24));
-    settingsBtn_.setBounds(r.removeFromRight(76).withSizeKeepingCentre(72, 24));
-    reserveBtn_.setBounds(r.removeFromRight(80).withSizeKeepingCentre(76, 24));
-    linkBtn_.setBounds(r.removeFromRight(56).withSizeKeepingCentre(52, 24));
+    // v0.2.1: MeterBar's cluster — same buttons, same order, same
+    // widths as its toolbar (consumed right-to-left here, so the
+    // visual order is Reserve | Link | Arrange | Restore | Dock |
+    // Settings | _ | Quit).
+    quitBtn_.setBounds(r.removeFromRight(52).withSizeKeepingCentre(52, 26));
+    minBtn_.setBounds(r.removeFromRight(30).withSizeKeepingCentre(30, 26));
+    settingsBtn_.setBounds(r.removeFromRight(74).withSizeKeepingCentre(74, 26));
+    dockBtn_.setBounds(r.removeFromRight(78).withSizeKeepingCentre(78, 26));
+    restoreBtn_.setBounds(r.removeFromRight(62).withSizeKeepingCentre(62, 26));
+    arrangeBtn_.setBounds(r.removeFromRight(66).withSizeKeepingCentre(66, 26));
+    linkBtn_.setBounds(r.removeFromRight(48).withSizeKeepingCentre(48, 26));
+    reserveBtn_.setBounds(r.removeFromRight(64).withSizeKeepingCentre(64, 26));
     const int n = (int)cells_.size();
     if (n > 0) {
         const int gap = 6;
@@ -335,8 +360,30 @@ void MainComponent::saveSettings() {
     settingsstore::save(state);
 }
 
+// v0.2.1 (family chrome): the control cluster wears MeterBar's
+// toolbar colours verbatim (panel face, deepest "on" face, accent
+// text off, body text on) — v0.2.0 shipped the buttons in stock JUCE
+// colours, which is most of why SessionBar read as a different
+// program next to MeterBar. Called on construction and whenever the
+// theme changes.
+void MainComponent::applyChrome() {
+    for (auto* b : { &reserveBtn_, &linkBtn_, &arrangeBtn_, &restoreBtn_, &dockBtn_, &settingsBtn_, &minBtn_, &quitBtn_ }) {
+        b->setColour(juce::TextButton::buttonColourId, theme_.panel);
+        b->setColour(juce::TextButton::buttonOnColourId, theme_.deepest);
+        b->setColour(juce::TextButton::textColourOffId, theme_.accent);
+        b->setColour(juce::TextButton::textColourOnId, theme_.text);
+    }
+    wordmark_.setColour(juce::Label::textColourId, theme_.accent);
+    versionLabel_.setColour(juce::Label::textColourId, theme_.dim);
+}
+
+void MainComponent::updateDockBtn() {
+    dockBtn_.setButtonText(state.dockEdge == sessionbar::DockEdge::Top ? "Dock Top" : "Dock Bot");
+}
+
 void MainComponent::settingsChanged() { linkClient_.notifyLocalSettings();
     theme_ = themeByName(state.themeName);
+    applyChrome();
     if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) w->setAlwaysOnTop(state.pinned);
     if (reserveBtn_.getToggleState() != state.reserveScreenSpace)
         reserveBtn_.setToggleState(state.reserveScreenSpace, juce::dontSendNotification);
@@ -357,6 +404,7 @@ void MainComponent::snapToDockEdge() {
     b.setY(state.dockEdge == sessionbar::DockEdge::Top ? area.getY() : area.getBottom() - b.getHeight());
     b.setX(juce::jlimit(area.getX(), area.getRight() - b.getWidth(), b.getX()));
     w->setBounds(b);
+    updateDockBtn(); // the Settings dock buttons land here too — the bar button must agree
     saveSettings();
     syncScreenSpace();
 }

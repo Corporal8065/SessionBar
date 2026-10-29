@@ -15,7 +15,7 @@ public:
         content = mc;
         setContentOwned(mc, true);
         setResizable(true, false);
-        setResizeLimits(560, 64, 3840, 300);
+        setResizeLimits(700, 64, 3840, 300); // v0.2.1: min width raised — the full control cluster needs the room
         setBounds(mc->state.windowX, mc->state.windowY, mc->state.windowW, mc->state.windowH);
         setAlwaysOnTop(mc->state.pinned);
         setVisible(true);
@@ -35,7 +35,7 @@ private:
 class SessionBarApp : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override { return "SessionBar"; }
-    const juce::String getApplicationVersion() override { return "0.2.0"; }
+    const juce::String getApplicationVersion() override { return "0.2.1"; }
     bool moreThanOneInstanceAllowed() override { return false; }
     void initialise(const juce::String&) override {
         // JUCE free-license attribution splash (family pattern): small,

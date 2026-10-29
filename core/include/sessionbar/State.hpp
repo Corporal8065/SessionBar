@@ -26,6 +26,6 @@ struct SessionBarState {
     bool reserveScreenSpace = false; // family AppBar reservation — strictly opt-in, default OFF
     bool linkEnabled = false;        // v0.2.0: family linking (snap/drag-follow/shared background) — opt-in, default OFF
     DockEdge dockEdge = DockEdge::Top;
-    int windowX = 120, windowY = 24, windowW = 880, windowH = 84;
+    int windowX = 120, windowY = 24, windowW = 1060, windowH = 84; // v0.2.1: default width widened for the full control cluster (fresh installs only; saved sizes persist)
 };
 } // namespace sessionbar
