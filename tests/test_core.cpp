@@ -15,6 +15,15 @@
 #include <sessionbar/ReserveState.hpp>
 #include <sessionbar/State.hpp>
 #include <sessionbar/BarLink.hpp>
+#include <sessionbar/SemVer.hpp>
+#include <sessionbar/ReleaseParse.hpp>
+#include <sessionbar/WindowGeom.hpp>
+#include <sessionbar/SessionColors.hpp>
+#include <sessionbar/Visualizer.hpp>
+#include <sessionbar/Glow.hpp>
+#include <sessionbar/Mascot.hpp>
+#include <sessionbar/CellLayout.hpp>
+#include <vector>
 
 static int failures = 0, checks = 0;
 #define CHECK(cond) do{ ++checks; if(!(cond)){ ++failures; std::printf("FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);} else { std::printf("ok   %s\n", #cond);} }while(0)
@@ -495,6 +504,123 @@ int main() {
     CHECK(sync2.seenSeq[0] == 3 && sync2.seenSeq[1] == 4);
     CHECK(!bgAdoption(sh2, 2, sync2, now, out));
 }
+
+
+    // ---------- v0.3.0: SemVer + ReleaseParse ----------
+    {
+        SemVer v;
+        CHECK(parseSemVer("v0.3.0", v) && v.minor == 3 && v.patch == 0);
+        CHECK(semVerIsNewer("v0.3.0", "0.2.1"));
+        CHECK(!semVerIsNewer("v0.2.1", "0.3.0"));
+        ReleaseFields f;
+        CHECK(parseReleaseJson(R"({"tag_name":"v0.3.0","body":"n","assets":[{"name":"SessionBar-Setup.exe","browser_download_url":"https://example.invalid/SessionBar-Setup.exe","size":42,"digest":"sha256:beef"}]})", f));
+        CHECK(f.hasAsset && f.assetSize == 42 && f.assetDigest == "sha256:beef");
+        ReleaseFields g;
+        CHECK(parseReleaseJson(R"({"tag_name":"v0.3.0","assets":[{"name":"Other.exe","size":1}]})", g));
+        CHECK(!g.hasAsset); // only the exact installer name counts
+    }
+    // ---------- v0.3.0: WindowGeom clamp (the off-screen restore bug) ----------
+    {
+        std::vector<IntRect> areas{ IntRect{0, 0, 1920, 1040} };
+        IntRect inside{ 100, 100, 1060, 108 };
+        CHECK(clampRectToWorkAreas(inside, areas) == inside);
+        // the field case: a rect saved entirely below/right of every monitor
+        IntRect lost{ 2400, 1500, 1060, 108 };
+        auto c = clampRectToWorkAreas(lost, areas);
+        CHECK(c.x == 1920 - 1060 && c.y == 1040 - 108 && c.w == 1060 && c.h == 108);
+        // partially under the taskbar at the bottom edge
+        IntRect sunk{ 100, 1030, 1060, 108 };
+        auto c2 = clampRectToWorkAreas(sunk, areas);
+        CHECK(c2.y == 1040 - 108);
+        // negative coordinates (dragged off the top-left) come back too
+        auto c3 = clampRectToWorkAreas(IntRect{ -900, -200, 1060, 108 }, areas);
+        CHECK(c3.x == 0 && c3.y == 0);
+        CHECK(clampRectToWorkAreas(inside, {}) == inside);
+    }
+    // ---------- v0.3.0: SessionColors ----------
+    {
+        CHECK(sessionStateColour(0, SessionState::Open) == Rgb({47, 214, 138}));   // Family green, verbatim
+        CHECK(sessionStateColour(0, SessionState::Closed) == Rgb({254, 90, 60}));  // Family red, verbatim
+        CHECK(sessionStateColour(1, SessionState::Open) == Rgb({240, 249, 33}));   // Plasma 1.0 stop
+        for (int sc = 0; sc < kSessionColorSchemeCount; ++sc) {
+            auto open = sessionStateColour(sc, SessionState::Open);
+            auto brk = sessionStateColour(sc, SessionState::Break);
+            auto pre = sessionStateColour(sc, SessionState::Pre);
+            auto cls = sessionStateColour(sc, SessionState::Closed);
+            auto post = sessionStateColour(sc, SessionState::Post);
+            CHECK(open != cls && open != brk && cls != post); // states stay distinguishable
+            CHECK(brk == pre);                               // the family's Pre=Break language
+        }
+        CHECK(std::string(sessionColorSchemeName(3)) == "Viridis");
+    }
+    // ---------- v0.3.0: GlowField + emitter visualizer ----------
+    {
+        GlowSettings gs;
+        GlowField f;
+        const float zero[3] = { 0.f, 0.f, 0.f };
+        f.update(0.05f, zero, 0.f);
+        auto base = f.sample(0.5f, 0.5f, gs);
+        CHECK(base.r <= 10 && base.b <= 14); // near-black at rest
+        const float hot[3] = { 1.f, 0.5f, 0.5f };
+        for (int i = 0; i < 40; ++i) f.update(0.05f, hot, 0.4f);
+        auto lit = f.sample(0.22f, 0.58f, gs);
+        CHECK(lit.r > 40 || lit.b > 40);
+        VisualizerSettings vs; vs.enabled = true;
+        VisualizerEngine e;
+        const float loud[3] = { 0.2f, 0.95f, 0.2f };
+        e.update(0.016f, loud, vs);
+        int heads = 0; for (auto& p : e.particles()) if (p.emitter) ++heads;
+        CHECK(heads >= 3);
+        for (int i = 0; i < 30; ++i) e.update(0.016f, loud, vs);
+        int dots = 0; for (auto& p : e.particles()) if (p.burst && !p.emitter) ++dots;
+        CHECK(dots > 0); // strand shedding happened
+    }
+    // ---------- v0.3.0: BarLink stack planner + audio + republish ----------
+    {
+        const long long now = 50000;
+        LinkShared sh;
+        auto& s0 = sh.slots[2]; s0.appId = 2; s0.linked = 1; s0.heartbeatMs = now; s0.rect = IntRect{0, 0, 1060, 108};
+        s0.stackEdge = 0; s0.stackAnchor = s0.rect;
+        auto& t1 = sh.slots[1]; t1.appId = 1; t1.linked = 1; t1.heartbeatMs = now; t1.rect = IntRect{300, 400, 900, 96};
+        auto& m0 = sh.slots[0]; m0.appId = 0; m0.linked = 1; m0.heartbeatMs = now; m0.rect = IntRect{9, 9, 800, 40};
+        IntRect targets[3];
+        CHECK(planStackAll(sh, now, 2, targets) == 3);
+        CHECK(targets[2] == s0.rect);
+        CHECK(targets[0].y == 108 && targets[0].x == 0);        // Meter first under the anchor (family order)
+        CHECK(targets[1].y == 108 + 40 && targets[1].x == 0);   // then Ticker
+        float pkt[4];
+        CHECK(!audioPacket(m0, now, pkt));
+        m0.audioSeq = 1; m0.audioLevel = 0.5f;
+        CHECK(audioPacket(m0, now, pkt) && pkt[3] == 0.5f);
+        BgSyncState bs; bs.publishedStyle = 1; bs.publishedPct = 55;
+        bgForceRepublish(bs);
+        CHECK(bgIsLocalChange(bs, 1, 55));
+    }
+    // ---------- v0.3.0: cell layout math ----------
+    {
+        auto w = solveCellWidths(1060, 8, {0, 0, 0}, 120);
+        CHECK(w[0] + w[1] + w[2] == 1060 - 16);
+        auto w2 = solveCellWidths(1060, 8, {400, 0, 0}, 120);
+        CHECK(w2[0] == 400 && w2[1] == w2[2]);
+        auto pr = adjustPairWidths(300, 300, -120, 100);
+        CHECK(pr.first == 180 && pr.second == 420);
+        CHECK(dropSlot({200, 500, 800}, 600) == 2);
+        CHECK(indexOrderAfterMove(3, 2, 0) == std::vector<int>({2, 0, 1}));
+    }
+    // ---------- v0.3.0: Mascot envelope + state defaults ----------
+    {
+        MascotAnim ma;
+        ma.triggerBob(500);
+        CHECK(ma.bobPx(565) < -4.9f && ma.bobPx(700) == 0.f);
+        ma.triggerExcited(1000, 3000);
+        CHECK(ma.excited(3999) && !ma.excited(4001));
+        SessionBarState d;
+        CHECK(d.cellOrder == std::vector<std::string>({"NY", "LDN", "TYO"}));
+        CHECK(!d.clickSounds && d.bgEffect == 0 && d.stateColorScheme == 0 && d.uiVer == 3);
+        CHECK((int)BackgroundStyle::Pastel == 3);
+        CHECK((int)DockEdge::Left == 2 && (int)DockEdge::Right == 3);
+        CHECK(d.windowH == 108);
+    }
 
     std::printf("%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;

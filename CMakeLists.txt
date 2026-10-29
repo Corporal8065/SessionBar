@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(SessionBar VERSION 0.2.1 LANGUAGES C CXX)
+project(SessionBar VERSION 0.3.0 LANGUAGES C CXX)
 # Static MSVC runtime (/MT) so a built SessionBar.exe runs on any
 # Windows 10/11 PC with NO Visual C++ Redistributable installed
 # (MeterBar v0.15 rule). Must be set before any target is created

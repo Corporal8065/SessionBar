@@ -1,6 +1,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "MainComponent.h"
+#include <sessionbar/WindowGeom.hpp> // v0.3.0: the off-screen restore clamp (item 14)
 class MainWindow : public juce::DocumentWindow {
 public:
     explicit MainWindow(const juce::String& name) : juce::DocumentWindow(name, juce::Colour(0x00000000), 0) {
@@ -15,8 +16,24 @@ public:
         content = mc;
         setContentOwned(mc, true);
         setResizable(true, false);
-        setResizeLimits(700, 64, 3840, 300); // v0.2.1: min width raised — the full control cluster needs the room
-        setBounds(mc->state.windowX, mc->state.windowY, mc->state.windowW, mc->state.windowH);
+        setResizeLimits(1180, 92, 3840, 1200);
+        // v0.3.0 item 14 (the field bug): after dock/arrange/link
+        // manipulation this bar once restored OFF-SCREEN — running,
+        // visible in the taskbar preview, impossible to grab. The
+        // saved rect is now clamped into a visible monitor work
+        // area before it is ever applied (pure rule: core
+        // WindowGeom, unit-tested). A bar must never restore
+        // off-screen.
+        {
+            std::vector<sessionbar::IntRect> areas;
+            for (auto& d : juce::Desktop::getInstance().getDisplays().displays) {
+                auto ua = d.userArea;
+                areas.push_back({ ua.getX(), ua.getY(), ua.getWidth(), ua.getHeight() });
+            }
+            auto clamped = sessionbar::clampRectToWorkAreas(
+                { mc->state.windowX, mc->state.windowY, mc->state.windowW, mc->state.windowH }, areas);
+            setBounds(clamped.x, clamped.y, clamped.w, clamped.h);
+        }
         setAlwaysOnTop(mc->state.pinned);
         setVisible(true);
     }
@@ -35,7 +52,7 @@ private:
 class SessionBarApp : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override { return "SessionBar"; }
-    const juce::String getApplicationVersion() override { return "0.2.1"; }
+    const juce::String getApplicationVersion() override { return "0.3.0"; }
     bool moreThanOneInstanceAllowed() override { return false; }
     void initialise(const juce::String&) override {
         // JUCE free-license attribution splash (family pattern): small,

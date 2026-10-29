@@ -1,4 +1,12 @@
-juce_add_gui_app(SessionBar PRODUCT_NAME "SessionBar" VERSION "0.2.1"
+juce_add_binary_data(SessionBarAssets
+    SOURCES
+        ../assets/anime-mascot-calm-clear.png
+        ../assets/anime-mascot-excited-clear.png
+        ../assets/click-pop.wav
+        ../assets/click-bloop.wav
+        ../assets/click-sparkle.wav)
+
+juce_add_gui_app(SessionBar PRODUCT_NAME "SessionBar" VERSION "0.3.0"
     COMPANY_NAME "SessionBar" BUNDLE_ID "com.sessionbar.app"
     ICON_BIG "icon/icon_big.png" ICON_SMALL "icon/icon_small.png")
 target_sources(SessionBar PRIVATE
@@ -8,13 +16,15 @@ target_sources(SessionBar PRIVATE
 target_include_directories(SessionBar PRIVATE Source ${CMAKE_CURRENT_SOURCE_DIR}/../core/include)
 target_compile_definitions(SessionBar PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_APPLICATION_NAME_STRING="SessionBar"
-    JUCE_APPLICATION_VERSION_STRING="0.2.1"
+    JUCE_APPLICATION_VERSION_STRING="0.3.0"
     # NOMINMAX (MeterBar v0.12.1 lesson): windows.h defines min/max as
     # macros that mangle std::min/std::max call sites on MSVC.
     NOMINMAX)
 target_link_libraries(SessionBar PRIVATE
     juce::juce_gui_basics juce::juce_gui_extra
-    sessionbar_core juce::juce_recommended_config_flags)
+    juce::juce_audio_basics juce::juce_audio_devices juce::juce_audio_formats
+    juce::juce_cryptography
+    sessionbar_core SessionBarAssets juce::juce_recommended_config_flags)
 if(WIN32)
   # shell32 = SHAppBarMessage, comctl32 = SetWindowSubclass,
   # dwmapi = DWMWA_CLOAKED — all for ScreenSpace (AppBar/arrange).
