@@ -1,5 +1,71 @@
 # SessionBar — BUILD_LOG
 
+# SessionBar — BUILD LOG
+
+## v0.3.0 (2026-10-29) — the parity round (MeterBar feature family + field fixes)
+
+Everything MeterBar had that this bar didn't, ported in one round,
+plus the fixes from Jackson's live v0.2.1 field test — including the
+off-screen restore bug, the round's top priority. Pure-core suite
+292 → 341 checks, 0 failures (g++ on the VM); the JUCE app layer is
+verified by the GitHub Actions Windows build (green on the branch
+and re-verified on the tag) — no Windows live test was run by the
+builder.
+
+- **Off-screen restore FIXED (14).** The restored rect is now
+  clamped into a visible monitor work area before it is ever
+  applied — at startup, and again whenever a preset moves the bar.
+  The clamp is a pure-core rule (WindowGeom) with regression tests:
+  fully-off-screen, taskbar-straddling, negative-coordinate and
+  oversized rects all land visible. A bar must never restore
+  off-screen.
+- **In-app updater (1).** MeterBar's flow ported: silent launch
+  check, "Update!" toolbar button, full notes in-app, download +
+  size/SHA-256 verify, silent install + relaunch; releases-page
+  fallback kept.
+- **Named presets WITH position (2).** Full state + window rect;
+  loading moves the bar (clamped). (MeterBar's load-side gap found
+  by the same audit — fixed in its v0.20.1.)
+- **Themes (3).** All five MeterBar themes verbatim + legacy Clean
+  Dark kept; Pastel background style added.
+- **Settings (4).** Pink-plum sheet (#2A1E2E / #E04C89, dark title
+  bar), Settings window only.
+- **UI click sounds (5).** This bar had none; MeterBar's kit ported
+  behind a toggle (default off).
+- **Session-state colour schemes (6).** Family / Plasma / Inferno /
+  Viridis / Magma state palettes; Family is the shipping v0.1–0.2.1
+  colours unchanged (Pre stays the dim slate-blue in every scheme).
+- **Animated backgrounds (7).** Visualizer (emitter model per
+  Jackson's refinement: curved strand-shedding emitters, distance
+  deceleration + colour drift, full-background blur) and the
+  MiniMeters-style grouped glow; palette controls in Settings.
+- **Vertical orientation (8).** Left/Right docks now exist and lay
+  out truly vertical. HONEST LIMIT: screen-space reservation stays
+  a top/bottom feature — a side-docked SessionBar docks and stacks
+  but does not reserve (the reservation API would register the
+  wrong edge); Settings says so next to the toggle.
+- **Cell reorder + widths (9, 10).** Session cells drag to reorder
+  (order persists; hidden sessions keep their relative place) and
+  dividers set explicit widths (persist), all solved in the core.
+- **Toolbar (11).** The cluster moved out of the middle of the bar
+  into MeterBar's 30 px top strip, exact order: Reserve | Link |
+  Arrange | Restore | Preset | Stack | Dock | Settings | Update! |
+  _ | Quit.
+- **One-click Stack (12)** and **live linked opacity repair (13)** —
+  same BarLink BLK2 machinery as the rest of the family.
+- **Cross-bar reactive glow (17).** Group-space glow driven by
+  MeterBar's broadcast when linked (ambient driver standalone).
+  Shared surface = the wash/glow; particles render locally.
+- **Mascot (18).** MeterBar's cell + its actual asset files, Anime
+  only. Triggers here: bob on any session state transition, excited
+  for 3 s on a transition INTO Open.
+- Two smaller repairs rode along: `linkEnabled` was never persisted
+  (the Link toggle reset every restart — now saved), and one-time
+  size migration for the taller default (84 → 108, width floor
+  1280) so the new toolbar fits. BarLink is BLK2 family-wide —
+  update all three together. README download link + mascot social
+  preview card included.
+
 ## v0.2.1 — 2026-10-29 (field-test fix round: control cluster + family chrome, arrange alignment, background-link hardening)
 
 - **Field test kit:** `sessionbar-test-kit-v0.2.1.zip` — full tree
