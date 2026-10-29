@@ -1,5 +1,6 @@
 #include "MainComponent.h"
 #include <sessionbar/CellLayout.hpp>
+#include <algorithm>
 #include <sessionbar/WindowGeom.hpp>
 #include <BinaryData.h>
 #include "SettingsStore.h"
@@ -862,6 +863,7 @@ void MainComponent::applyTheme() {
     applyChrome();
     if (mascot_) mascot_->setVisible(state.themeName == "Anime");
     for (auto& c : cells_) c->repaint();
+    resized(); // the mascot cell (Anime) and cell softening depend on the theme
     repaint();
 }
 void MainComponent::uiClick(ClickSounds::Which w) {
