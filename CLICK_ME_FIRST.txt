@@ -1,4 +1,4 @@
-SessionBar v0.1 - market session clocks (New York / London / Tokyo)
+SessionBar v0.2.0 - market session clocks (New York / London / Tokyo)
 
 START HERE:
   1. Double-click build.bat in this folder (sessionbar-app).
@@ -15,8 +15,12 @@ START HERE:
 Windows will probably show a blue SmartScreen prompt the first time
 (unsigned app): More info -> Run anyway. Normal for free software.
 
-One honesty note: exchange HOLIDAYS are not modeled in v0.1 - the
-clock follows the regular Mon-Fri schedule only.
+One honesty note: exchange holidays and early closes ARE modeled since
+v0.2.0 (NYSE / LSE / JPX, 2026-2028, embedded — no internet needed), and
+New York shows PRE (04:00-09:30) and POST (16:00-20:00) states. Two
+2028 entries are derived rather than officially published yet (Tokyo's
+2028 holidays, from Japan's statutory calendar; LSE's two 2028 early
+closes, from the 2023 analogue) - BUILD_LOG.md names them.
 
 Then read README_TEST.md - it walks through the field tests:
 the phone world-clock glance check, watching a countdown flip at

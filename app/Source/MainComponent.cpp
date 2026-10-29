@@ -3,7 +3,7 @@
 #if JUCE_WINDOWS
  #include <windows.h> // native rects for the AppBar sync (physical pixels)
 #endif
-static const char* kVersion = "v0.1";
+static const char* kVersion = "v0.2.0";
 
 // =====================================================================
 // SessionCell — one exchange: city, its local clock, state, countdown.
@@ -41,7 +41,10 @@ public:
         auto mid = r.removeFromTop(24.f);
         const juce::Colour sc = !has ? th.dim
             : status.state == sessionbar::SessionState::Open ? th.good
-            : status.state == sessionbar::SessionState::Break ? th.warn : th.bad;
+            : status.state == sessionbar::SessionState::Break ? th.warn
+            : status.state == sessionbar::SessionState::Pre ? th.warn   // v0.2.0: pre-market = warming up (amber)
+            : status.state == sessionbar::SessionState::Post ? th.accent2 // post-market = winding down (teal)
+            : th.bad;
         auto dot = mid.removeFromLeft(16.f).toFloat().withSizeKeepingCentre(9.f, 9.f);
         g.setColour(sc.withAlpha(0.25f)); g.fillEllipse(dot.expanded(1.5f));
         g.setColour(sc); g.fillEllipse(dot);
@@ -72,10 +75,10 @@ public:
         auto changed = [this]{ if (onChanged) onChanged(); };
 
         heading("Sessions shown");
-        toggle("New York — NYSE 9:30-16:00 local", st->showNewYork, changed);
+        toggle("New York — NYSE 9:30-16:00 local (+ PRE 4:00-9:30, POST 16:00-20:00)", st->showNewYork, changed);
         toggle("London — LSE 8:00-16:30 local", st->showLondon, changed);
         toggle("Tokyo — TSE 9:00-15:00 local (lunch break 11:30-12:30)", st->showTokyo, changed);
-        note("Regular weekly schedule only — exchange holidays are not modeled in v0.1.");
+        note("Exchange holidays and early closes ARE modeled (v0.2.0): NYSE / LSE / JPX calendars for 2026-2028 are embedded in the app — fully offline. Tokyo 2028 and the two LSE 2028 early closes are derived from statutory holidays (see BUILD_LOG).");
         heading("Clock");
         toggle("24-hour clock (off = 12-hour AM/PM)", st->use24h, changed);
         heading("Appearance");
@@ -188,7 +191,7 @@ MainComponent::MainComponent() {
     state = settingsstore::load();
     theme_ = themeByName(state.themeName);
     setOpaque(false); // the window is non-opaque too: Background Opacity shows the desktop through
-    setTooltip("SessionBar - New York / London / Tokyo market session clocks. Regular weekly schedule; exchange holidays are not modeled.");
+    setTooltip("SessionBar - New York / London / Tokyo market session clocks. Exchange holidays + early closes modeled (2026-2028, embedded); New York PRE/POST states shown.");
 
     wordmark_.setText("SessionBar", juce::dontSendNotification);
     wordmark_.setFont(juce::Font(15.f, juce::Font::bold)); wordmark_.setColour(juce::Label::textColourId, theme_.accent);

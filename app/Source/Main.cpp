@@ -35,7 +35,7 @@ private:
 class SessionBarApp : public juce::JUCEApplication {
 public:
     const juce::String getApplicationName() override { return "SessionBar"; }
-    const juce::String getApplicationVersion() override { return "0.1.0"; }
+    const juce::String getApplicationVersion() override { return "0.2.0"; }
     bool moreThanOneInstanceAllowed() override { return false; }
     void initialise(const juce::String&) override {
         // JUCE free-license attribution splash (family pattern): small,

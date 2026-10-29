@@ -1,5 +1,72 @@
 # SessionBar — BUILD_LOG
 
+## v0.2.0 — 2026-10-29 (exchange calendars + New York PRE/POST + family release flow)
+
+- **(g) Exchange calendars.** New pure-core header
+  `Calendars.hpp`: NYSE / LSE / JPX holidays and early closes for
+  2026–2028 as embedded data (fully offline — SessionBar still makes
+  no network calls). 29 NYSE holidays + 5 early closes (13:00 ET);
+  24 LSE holidays + 6 early closes (12:30 London); 55 JPX holidays,
+  no early closes. `addDaySegments` now skips a holiday entirely and
+  substitutes an early close for the day's closeMin.
+  **Provenance, honestly:** 2026–2027 (and NYSE/LSE 2028 holidays)
+  from the published exchange lists researched 2026-10-29; **Tokyo
+  2028 is DERIVED** from Japan's statutory national holidays plus
+  JPX's standing Jan 1–3 / Dec 31 market holidays (JPX had not
+  published 2028), and **the LSE's two late-December 2028 early
+  closes (Dec 22, Dec 29) are DERIVED** from the 2023 analogue
+  (both eves fall on Sunday in 2028; in 2023 the preceding Fridays
+  were half days). Deliberate absences match the published lists:
+  NYSE has NO New Year closure in calendar 2028 and no early close
+  on 2026-07-02 / 2027-12-24. Every date is pinned by a unit test;
+  the absence cases are tested too.
+- **(h) New York PRE / POST.** `SessionState` gains Pre and Post;
+  NY's day is now PRE 04:00–09:30 → OPEN 09:30–16:00 → POST
+  16:00–20:00 (all ET). Verbs: PRE "opens in", Open→Post "closes",
+  POST "ends in", overnight "pre-market opens in". Cells render PRE
+  amber and POST teal (family palette). On an early-close day POST
+  starts at the early close and still runs to 20:00; on a holiday
+  there is no PRE/POST at all. Superseded v0.1 expectations were
+  updated deliberately — including one the calendar changed for
+  real: Saturday Jan 17 2026's next change is now Tuesday's PRE,
+  because Monday Jan 19 is MLK Day.
+- **Release workflow (Jackson's addition):**
+  `.github/workflows/build-windows.yml`, adapted from MeterBar's —
+  a `v*` tag builds the app, runs the core suite, compiles the Inno
+  installer and attaches `SessionBar-Setup.exe` to the tag's GitHub
+  Release; the job refuses a tag that doesn't match the CMakeLists
+  version. `SessionBar.iss` gained the `#ifndef MyAppVersion` guard.
+  **No tag was created by this work.**
+- **README + theme parity (Jackson's additions).** README.md rebuilt
+  in MeterBar's structure (centred header, CI badge, Features /
+  Install / Build / Gallery / family). Gallery = screenshots-wanted
+  list ONLY (standing honesty rule: no borrowed or faked images; no
+  Windows captures of SessionBar exist yet). Theme parity verified:
+  the default Midnight Kids palette is value-for-value identical to
+  MeterBar's default theme.
+- The app tooltip and Settings note that said "holidays are not
+  modeled" now say they are — v0.1's one honest limit is retired.
+
+Kit file: `sessionbar-test-kit-v0.2.0.zip` — same layout as v0.1,
+plus `REQUESTS.md`, `.github/workflows/build-windows.yml` and
+`core/include/sessionbar/Calendars.hpp`.
+
+Verified (Linux VM; Windows behaviour is the README field tests' job):
+- **Core suite: 255 checks, 0 failures** (was 107) — in tree AND
+  rebuilt from the shipped kit contents. New: 119 per-date calendar
+  checks, deliberate-absence checks, calendar×PRE/POST integration
+  (Thanksgiving, early closes, Easter Monday, Coming-of-Age Day,
+  PRE/POST boundary minutes), and the updated PRE/POST expectations.
+- **App translation units syntax-checked clean** against JUCE 8.0.4
+  headers. The full CMake app build could not run on this VM (the
+  nested juceaide build needs libxrandr-dev, not installed — same
+  environment gap as TickerBar v0.2.0, recorded in REQUESTS.md);
+  the CI workflow builds the app on windows-latest.
+
+Honest limits: the calendar tables end at 2028 — a 2029 refresh is a
+data update, not a code change. Tokyo 2028 and the two LSE 2028
+early closes are derived, as flagged above and in the code.
+
 ## v0.1 — 2026-10-28 (first build)
 
 New sibling in the bar family (MeterBar = audio meters, TickerBar =

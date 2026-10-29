@@ -1,4 +1,4 @@
-# SessionBar — v0.1 test kit
+# SessionBar — v0.2.0 test kit
 
 A borderless always-on-top **market session clock bar** for Windows — the
 third sibling in the bar family (MeterBar = audio meters, TickerBar =
@@ -21,11 +21,16 @@ from fixed offsets — the weeks in March and late October when the US and
 Europe change clocks on different Sundays are handled correctly (the
 core math is unit-tested against the published 2026 calendars).
 
-**Honesty note — holidays are NOT modeled in v0.1.** The clock follows
-the regular Monday–Friday schedule only. On an exchange holiday (July 4,
-Christmas, a UK bank holiday, a Japanese national holiday) the cell will
-still say OPEN during regular hours. A holiday calendar is future work;
-v0.1 would rather tell you this plainly than pretend.
+**What changed in v0.2.0:** exchange **holidays and early closes are
+modeled now** — the NYSE / LSE / JPX calendars for 2026–2028 are embedded
+in the app (fully offline; every date is a unit test). New York also
+shows **PRE** (04:00–09:30 ET, amber) and **POST** (16:00–20:00 ET, teal)
+states. Two calendar footnotes stay honest: Tokyo's 2028 holidays are
+derived from Japan's statutory calendar (JPX hadn't published 2028 at
+research time), and the LSE's two late-December 2028 early closes are
+derived from the 2023 analogue — both are named in BUILD_LOG.md. A
+GitHub Actions workflow now builds the installer on version tags, like
+MeterBar's.
 
 No network, no accounts, nothing leaves the machine — the only inputs
 are your system clock and the Windows time-zone database. Needs Windows
@@ -45,7 +50,7 @@ C++** workload (the same setup as MeterBar's test builds). Then:
    (PATH, standalone installs, vswhere, manual scan), configures (the
    first run downloads JUCE 8 — needs internet), builds Release, and
    runs the core unit tests at the end. You should see
-   **107 checks, 0 failures**.
+   **255 checks, 0 failures**.
 4. When it says DONE, double-click
    `build-app\app\SessionBar_artefacts\Release\SessionBar.exe`.
 
@@ -79,8 +84,19 @@ send Milo that file.
    in amber with "resumes in …". Before 11:30 it says "break in …"
    during the morning session.
 5. **Weekend.** On a Saturday or Sunday, all three cells say CLOSED and
-   count down to **Monday's** open (New York's countdown will read
-   40+ hours on a Saturday — that's correct).
+   count down to the next session start (New York's countdown will read
+   40+ hours on a Saturday — that's correct; if Monday is a US holiday,
+   it counts to Tuesday's pre-market instead).
+11. **New York PRE / POST.** Before 9:30 AM Eastern (from 4:00 AM), the
+   NEW YORK cell says **PRE** in amber, counting down "opens in …".
+   After the 4:00 PM close until 8:00 PM it says **POST** in teal,
+   counting down "ends in …". Before 4:00 AM and after 8:00 PM it is
+   CLOSED as before.
+12. **Holiday + early close.** On a US holiday (Thanksgiving, Christmas,
+   MLK Day…), NEW YORK stays CLOSED all day — no PRE, no POST. On the
+   day after Thanksgiving, New York closes at **1:00 PM** Eastern and
+   flips straight into POST. London closes at **12:30 PM** on Christmas
+   Eve and New Year's Eve when they're trading days.
 6. **Drag + it remembers.** Drag the bar anywhere by an empty part of
    its background (or by a cell). Close it (the **X** at the right end),
    relaunch: it comes back in the same place, same size.

@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <string>
 #include <sessionbar/Sessions.hpp>
+#include <sessionbar/Calendars.hpp>
 #include <sessionbar/Arrange.hpp>
 #include <sessionbar/ReserveState.hpp>
 #include <sessionbar/State.hpp>
@@ -37,15 +38,18 @@ int main() {
         CHECK(!st.localIsWeekend);
     }
     {
-        auto st = evaluate(newYorkDef(), utc(2026, 1, 15, 13, 0)); // 08:00 EST, pre-open
-        CHECK(st.state == SessionState::Closed);
+        auto st = evaluate(newYorkDef(), utc(2026, 1, 15, 13, 0)); // 08:00 EST — v0.2.0: PRE (04:00–09:30)
+        CHECK(st.state == SessionState::Pre);
         CHECK(st.secondsToChange == seconds{ 5400 }); // opens 09:30 EST = 14:30Z
         CHECK(std::string(st.verb) == "opens");
+        CHECK(std::string(stateName(st.state)) == "PRE");
     }
     {
-        auto st = evaluate(newYorkDef(), utc(2026, 1, 15, 22, 0)); // 17:00 EST, post-close
-        CHECK(st.state == SessionState::Closed);
-        CHECK(st.secondsToChange == seconds{ 59400 }); // next open Fri 14:30Z
+        auto st = evaluate(newYorkDef(), utc(2026, 1, 15, 22, 0)); // 17:00 EST — v0.2.0: POST (16:00–20:00)
+        CHECK(st.state == SessionState::Post);
+        CHECK(st.secondsToChange == seconds{ 10800 }); // post ends 20:00 EST = 01:00Z
+        CHECK(std::string(st.verb) == "ends");
+        CHECK(std::string(stateName(st.state)) == "POST");
         CHECK(formatLocalTime(st, true) == "17:00");
         CHECK(formatLocalTime(st, false) == "5:00 PM");
     }
@@ -56,15 +60,15 @@ int main() {
         CHECK(st.secondsToChange == seconds{ 23400 });
     }
     {
-        auto st = evaluate(newYorkDef(), utc(2026, 1, 15, 21, 0)); // exactly 16:00 EST
-        CHECK(st.state == SessionState::Closed);
-        CHECK(st.secondsToChange == seconds{ 63000 }); // Fri open is 17h30m away
+        auto st = evaluate(newYorkDef(), utc(2026, 1, 15, 21, 0)); // exactly 16:00 EST — POST begins (half-open)
+        CHECK(st.state == SessionState::Post);
+        CHECK(st.secondsToChange == seconds{ 14400 }); // post ends 20:00 EST
     }
     // Friday close -> Monday open (the long regular gap).
     {
-        auto st = evaluate(newYorkDef(), utc(2026, 1, 16, 21, 0)); // Fri 16:00 EST
-        CHECK(st.state == SessionState::Closed);
-        CHECK(st.secondsToChange == seconds{ 235800 }); // Mon 09:30 EST = 65h30m
+        auto st = evaluate(newYorkDef(), utc(2026, 1, 16, 21, 0)); // Fri 16:00 EST — POST, not the weekend yet
+        CHECK(st.state == SessionState::Post);
+        CHECK(st.secondsToChange == seconds{ 14400 }); // post ends Fri 20:00 EST
     }
     // ---------- London, winter (GMT) ----------
     {
@@ -128,7 +132,7 @@ int main() {
         auto st = evaluate(newYorkDef(), utc(2026, 1, 17, 15, 0)); // Sat 10:00 EST
         CHECK(st.state == SessionState::Closed);
         CHECK(st.localIsWeekend);
-        CHECK(st.secondsToChange == seconds{ 171000 }); // Mon 14:30Z = 47h30m
+        CHECK(st.secondsToChange == seconds{ 237600 }); // v0.2.0: Mon Jan 19 is MLK Day (NYSE holiday) — next is Tue PRE 04:00 EST = 66h
     }
     {
         auto st = evaluate(londonDef(), utc(2026, 1, 17, 15, 0)); // Sat 15:00 GMT
@@ -144,8 +148,8 @@ int main() {
     // ---------- March mismatch week: US on DST (EDT, UTC-4) from
     // Mar 8; London still GMT until Mar 29. Tue 2026-03-10. ----------
     {
-        auto ny = evaluate(newYorkDef(), utc(2026, 3, 10, 12, 0)); // 08:00 EDT
-        CHECK(ny.state == SessionState::Closed);
+        auto ny = evaluate(newYorkDef(), utc(2026, 3, 10, 12, 0)); // 08:00 EDT — PRE
+        CHECK(ny.state == SessionState::Pre);
         CHECK(ny.secondsToChange == seconds{ 5400 }); // opens 09:30 EDT = 13:30Z (NOT 14:30Z)
         auto ld = evaluate(londonDef(), utc(2026, 3, 10, 12, 0)); // 12:00 GMT
         CHECK(ld.state == SessionState::Open);
@@ -159,8 +163,8 @@ int main() {
     // ---------- Late-Oct mismatch week: London back on GMT from
     // Oct 25; New York still EDT until Nov 1. Tue 2026-10-27. ----------
     {
-        auto ny = evaluate(newYorkDef(), utc(2026, 10, 27, 13, 0)); // 09:00 EDT
-        CHECK(ny.state == SessionState::Closed);
+        auto ny = evaluate(newYorkDef(), utc(2026, 10, 27, 13, 0)); // 09:00 EDT — PRE
+        CHECK(ny.state == SessionState::Pre);
         CHECK(ny.secondsToChange == seconds{ 1800 }); // opens 09:30 EDT = 13:30Z
         auto ld = evaluate(londonDef(), utc(2026, 10, 27, 13, 0)); // 13:00 GMT
         CHECK(ld.state == SessionState::Open);
@@ -168,8 +172,8 @@ int main() {
     }
     // ---------- Summer sanity: both on DST (EDT / BST). Wed 2026-07-15.
     {
-        auto ny = evaluate(newYorkDef(), utc(2026, 7, 15, 13, 0)); // 09:00 EDT
-        CHECK(ny.state == SessionState::Closed);
+        auto ny = evaluate(newYorkDef(), utc(2026, 7, 15, 13, 0)); // 09:00 EDT — PRE
+        CHECK(ny.state == SessionState::Pre);
         CHECK(ny.secondsToChange == seconds{ 1800 });
         auto ld = evaluate(londonDef(), utc(2026, 7, 15, 13, 0)); // 14:00 BST
         CHECK(ld.state == SessionState::Open);
@@ -228,6 +232,169 @@ int main() {
         CHECK(s.dockEdge == DockEdge::Top);
     }
 
+    // ---------- v0.2.0: exchange calendars — EVERY published date is a test ----------
+    {
+        auto ymd = [](int y, int m, int d) { return year_month_day{ year{ y } / m / d }; };
+        CHECK(isExchangeHoliday("NY", ymd(2026, 1, 1)));
+        CHECK(isExchangeHoliday("NY", ymd(2026, 1, 19)));
+        CHECK(isExchangeHoliday("NY", ymd(2026, 2, 16)));
+        CHECK(isExchangeHoliday("NY", ymd(2026, 4, 3)));
+        CHECK(isExchangeHoliday("NY", ymd(2026, 5, 25)));
+        CHECK(isExchangeHoliday("NY", ymd(2026, 6, 19)));
+        CHECK(isExchangeHoliday("NY", ymd(2026, 7, 3)));
+        CHECK(isExchangeHoliday("NY", ymd(2026, 9, 7)));
+        CHECK(isExchangeHoliday("NY", ymd(2026, 11, 26)));
+        CHECK(isExchangeHoliday("NY", ymd(2026, 12, 25)));
+        CHECK(isExchangeHoliday("NY", ymd(2027, 1, 1)));
+        CHECK(isExchangeHoliday("NY", ymd(2027, 1, 18)));
+        CHECK(isExchangeHoliday("NY", ymd(2027, 2, 15)));
+        CHECK(isExchangeHoliday("NY", ymd(2027, 3, 26)));
+        CHECK(isExchangeHoliday("NY", ymd(2027, 5, 31)));
+        CHECK(isExchangeHoliday("NY", ymd(2027, 6, 18)));
+        CHECK(isExchangeHoliday("NY", ymd(2027, 7, 5)));
+        CHECK(isExchangeHoliday("NY", ymd(2027, 9, 6)));
+        CHECK(isExchangeHoliday("NY", ymd(2027, 11, 25)));
+        CHECK(isExchangeHoliday("NY", ymd(2027, 12, 24)));
+        CHECK(isExchangeHoliday("NY", ymd(2028, 1, 17)));
+        CHECK(isExchangeHoliday("NY", ymd(2028, 2, 21)));
+        CHECK(isExchangeHoliday("NY", ymd(2028, 4, 14)));
+        CHECK(isExchangeHoliday("NY", ymd(2028, 5, 29)));
+        CHECK(isExchangeHoliday("NY", ymd(2028, 6, 19)));
+        CHECK(isExchangeHoliday("NY", ymd(2028, 7, 4)));
+        CHECK(isExchangeHoliday("NY", ymd(2028, 9, 4)));
+        CHECK(isExchangeHoliday("NY", ymd(2028, 11, 23)));
+        CHECK(isExchangeHoliday("NY", ymd(2028, 12, 25)));
+        CHECK(isExchangeHoliday("LDN", ymd(2026, 1, 1)));
+        CHECK(isExchangeHoliday("LDN", ymd(2026, 4, 3)));
+        CHECK(isExchangeHoliday("LDN", ymd(2026, 4, 6)));
+        CHECK(isExchangeHoliday("LDN", ymd(2026, 5, 4)));
+        CHECK(isExchangeHoliday("LDN", ymd(2026, 5, 25)));
+        CHECK(isExchangeHoliday("LDN", ymd(2026, 8, 31)));
+        CHECK(isExchangeHoliday("LDN", ymd(2026, 12, 25)));
+        CHECK(isExchangeHoliday("LDN", ymd(2026, 12, 28)));
+        CHECK(isExchangeHoliday("LDN", ymd(2027, 1, 1)));
+        CHECK(isExchangeHoliday("LDN", ymd(2027, 3, 26)));
+        CHECK(isExchangeHoliday("LDN", ymd(2027, 3, 29)));
+        CHECK(isExchangeHoliday("LDN", ymd(2027, 5, 3)));
+        CHECK(isExchangeHoliday("LDN", ymd(2027, 5, 31)));
+        CHECK(isExchangeHoliday("LDN", ymd(2027, 8, 30)));
+        CHECK(isExchangeHoliday("LDN", ymd(2027, 12, 27)));
+        CHECK(isExchangeHoliday("LDN", ymd(2027, 12, 28)));
+        CHECK(isExchangeHoliday("LDN", ymd(2028, 1, 3)));
+        CHECK(isExchangeHoliday("LDN", ymd(2028, 4, 14)));
+        CHECK(isExchangeHoliday("LDN", ymd(2028, 4, 17)));
+        CHECK(isExchangeHoliday("LDN", ymd(2028, 5, 1)));
+        CHECK(isExchangeHoliday("LDN", ymd(2028, 5, 29)));
+        CHECK(isExchangeHoliday("LDN", ymd(2028, 8, 28)));
+        CHECK(isExchangeHoliday("LDN", ymd(2028, 12, 25)));
+        CHECK(isExchangeHoliday("LDN", ymd(2028, 12, 26)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 1, 1)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 1, 2)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 1, 3)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 1, 12)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 2, 11)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 2, 23)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 3, 20)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 4, 29)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 5, 4)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 5, 5)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 5, 6)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 7, 20)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 8, 11)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 9, 21)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 9, 22)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 9, 23)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 10, 12)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 11, 3)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 11, 23)));
+        CHECK(isExchangeHoliday("TYO", ymd(2026, 12, 31)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 1, 1)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 1, 2)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 1, 3)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 1, 11)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 2, 11)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 2, 23)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 3, 22)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 4, 29)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 5, 3)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 5, 4)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 5, 5)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 7, 19)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 8, 11)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 9, 20)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 9, 23)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 10, 11)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 11, 3)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 11, 23)));
+        CHECK(isExchangeHoliday("TYO", ymd(2027, 12, 31)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 1, 3)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 1, 10)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 2, 11)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 2, 23)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 3, 20)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 5, 3)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 5, 4)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 5, 5)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 7, 17)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 8, 11)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 9, 18)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 9, 22)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 10, 9)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 11, 3)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 11, 23)));
+        CHECK(isExchangeHoliday("TYO", ymd(2028, 12, 31)));
+        CHECK(earlyCloseMin("NY", ymd(2026, 11, 27)) == std::optional<int>(780));
+        CHECK(earlyCloseMin("NY", ymd(2026, 12, 24)) == std::optional<int>(780));
+        CHECK(earlyCloseMin("NY", ymd(2027, 11, 26)) == std::optional<int>(780));
+        CHECK(earlyCloseMin("NY", ymd(2028, 7, 3)) == std::optional<int>(780));
+        CHECK(earlyCloseMin("NY", ymd(2028, 11, 24)) == std::optional<int>(780));
+        CHECK(earlyCloseMin("LDN", ymd(2026, 12, 24)) == std::optional<int>(750));
+        CHECK(earlyCloseMin("LDN", ymd(2026, 12, 31)) == std::optional<int>(750));
+        CHECK(earlyCloseMin("LDN", ymd(2027, 12, 24)) == std::optional<int>(750));
+        CHECK(earlyCloseMin("LDN", ymd(2027, 12, 31)) == std::optional<int>(750));
+        CHECK(earlyCloseMin("LDN", ymd(2028, 12, 22)) == std::optional<int>(750));
+        CHECK(earlyCloseMin("LDN", ymd(2028, 12, 29)) == std::optional<int>(750));
+        // Deliberate absences (published lists say these are TRADING days):
+        CHECK(!isExchangeHoliday("NY", ymd(2028, 1, 1)));   // Jan 1 2028 is a Saturday, not observed
+        CHECK(!earlyCloseMin("NY", ymd(2026, 7, 2)).has_value());  // no Jul-2 early close in 2026
+        CHECK(!earlyCloseMin("NY", ymd(2027, 12, 24)).has_value()); // Christmas 2027 IS the holiday itself
+        CHECK(!earlyCloseMin("TYO", ymd(2026, 12, 24)).has_value()); // Tokyo has no early closes
+        CHECK(!isExchangeHoliday("NY", ymd(2026, 1, 15)));  // an ordinary Thursday
+        CHECK(!isExchangeHoliday("XXX", ymd(2026, 1, 1)));  // unknown id: no calendar
+    }
+    // ---------- v0.2.0: calendar + PRE/POST integration ----------
+    {
+        auto st = evaluate(newYorkDef(), utc(2026, 11, 26, 15, 0)); // Thanksgiving, 10:00 EST
+        CHECK(st.state == SessionState::Closed);
+        CHECK(st.secondsToChange == seconds{ 64800 }); // Fri PRE 04:00 EST = Fri 09:00Z
+        CHECK(std::string(st.verb) == "pre-market opens");
+        auto pre = evaluate(newYorkDef(), utc(2026, 11, 26, 13, 0)); // Thanksgiving 08:00 EST: NO pre-market on a holiday
+        CHECK(pre.state == SessionState::Closed);
+        auto ec = evaluate(newYorkDef(), utc(2026, 11, 27, 17, 30)); // day after Thanksgiving, 12:30 EST
+        CHECK(ec.state == SessionState::Open);
+        CHECK(ec.secondsToChange == seconds{ 1800 }); // early close 13:00 EST
+        CHECK(std::string(ec.verb) == "closes"); // into POST
+        auto post = evaluate(newYorkDef(), utc(2026, 11, 27, 18, 30)); // 13:30 EST: post runs on after the early close
+        CHECK(post.state == SessionState::Post);
+        CHECK(post.secondsToChange == seconds{ 23400 }); // to 20:00 EST
+        auto ld = evaluate(londonDef(), utc(2026, 12, 24, 12, 0)); // Christmas Eve, 12:00 GMT
+        CHECK(ld.state == SessionState::Open);
+        CHECK(ld.secondsToChange == seconds{ 1800 }); // LSE early close 12:30
+        auto em = evaluate(londonDef(), utc(2026, 4, 6, 12, 0)); // Easter Monday: LSE closed
+        CHECK(em.state == SessionState::Closed);
+        auto ty = evaluate(tokyoDef(), utc(2026, 1, 12, 2, 0)); // Coming-of-Age Day, 11:00 JST: closed
+        CHECK(ty.state == SessionState::Closed);
+        auto b = evaluate(newYorkDef(), utc(2026, 1, 15, 8, 59)); // 03:59 EST: one minute before PRE
+        CHECK(b.state == SessionState::Closed);
+        CHECK(b.secondsToChange == seconds{ 60 });
+        CHECK(std::string(b.verb) == "pre-market opens");
+        auto at = evaluate(newYorkDef(), utc(2026, 1, 15, 9, 0)); // exactly 04:00 EST: PRE begins
+        CHECK(at.state == SessionState::Pre);
+        CHECK(at.secondsToChange == seconds{ 19800 });
+        auto pe = evaluate(newYorkDef(), utc(2026, 1, 16, 1, 0)); // exactly 20:00 EST: POST over
+        CHECK(pe.state == SessionState::Closed);
+        CHECK(pe.secondsToChange == seconds{ 28800 }); // Fri PRE 04:00 EST
+    }
     std::printf("%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }

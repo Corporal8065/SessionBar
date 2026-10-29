@@ -1,6 +1,7 @@
 #pragma once
 #include <chrono>
 #include <string>
+#include "Calendars.hpp"
 namespace sessionbar {
 // SESSION MATH — the whole product, as pure functions of an injected
 // "now". No OS calls, no globals, no caching: evaluate() takes a
@@ -16,14 +17,15 @@ namespace sessionbar {
 // springs forward ~3 weeks before the EU in March; the EU falls back
 // one week before the US in late Oct) are exactly what the tests pin.
 //
-// Schedule model: Mon–Fri trading days (exchange HOLIDAYS ARE NOT
-// MODELED in v0.1 — the README says so plainly). A day is a list of
+// Schedule model: Mon–Fri trading days, minus the exchange holidays
+// and with the early closes of Calendars.hpp (v0.2.0 — v0.1 did not
+// model holidays and said so plainly). A day is a list of
 // half-open segments [begin, end): one Open segment, or for Tokyo
 // Open / Break / Open around the lunch break. Half-open ends make the
 // boundary minutes exact: AT the open instant the session is OPEN, AT
 // the close instant it is CLOSED.
 
-enum class SessionState { Open, Break, Closed };
+enum class SessionState { Open, Break, Closed, Pre, Post };
 
 struct SessionDef {
     const char* id;    // short id, used in settings ("NY")
@@ -33,10 +35,13 @@ struct SessionDef {
     int closeMin;
     int breakStartMin; // -1 = no midday break
     int breakEndMin;
+    int preOpenMin = -1;   // v0.2.0: pre-market open (local minutes); -1 = no pre-market session
+    int postCloseMin = -1; // v0.2.0: post-market close (local minutes); -1 = no post-market session
 };
 
 inline const SessionDef& newYorkDef() {
-    static const SessionDef d{ "NY", "NEW YORK", "America/New_York", 9 * 60 + 30, 16 * 60, -1, -1 };
+    static const SessionDef d{ "NY", "NEW YORK", "America/New_York", 9 * 60 + 30, 16 * 60, -1, -1,
+                               4 * 60, 20 * 60 }; // PRE 04:00–09:30, POST 16:00–20:00 ET (v0.2.0 item h)
     return d;
 }
 inline const SessionDef& londonDef() {
@@ -66,6 +71,8 @@ inline const char* stateName(SessionState s) {
     switch (s) {
     case SessionState::Open: return "OPEN";
     case SessionState::Break: return "BREAK";
+    case SessionState::Pre: return "PRE";
+    case SessionState::Post: return "POST";
     default: return "CLOSED";
     }
 }
@@ -88,13 +95,24 @@ inline void addDaySegments(const SessionDef& def, const std::chrono::time_zone* 
                            std::chrono::local_days day, Segment* out, int& n) {
     const std::chrono::weekday wd{ day };
     if (wd == std::chrono::Saturday || wd == std::chrono::Sunday) return;
+    // v0.2.0: exchange holiday -> the day has NO segments at all
+    // (New York gets no pre/post on a holiday either). Early close ->
+    // the regular session ends early; post-market still runs to its
+    // own close (extended hours continue after an early close).
+    const std::chrono::year_month_day ymd{ day };
+    if (isExchangeHoliday(def.id, ymd)) return;
+    const int closeMin = earlyCloseMin(def.id, ymd).value_or(def.closeMin);
+    if (def.preOpenMin >= 0)
+        out[n++] = { localToSys(tz, day, def.preOpenMin), localToSys(tz, day, def.openMin), SessionState::Pre };
     if (def.breakStartMin >= 0) {
         out[n++] = { localToSys(tz, day, def.openMin), localToSys(tz, day, def.breakStartMin), SessionState::Open };
         out[n++] = { localToSys(tz, day, def.breakStartMin), localToSys(tz, day, def.breakEndMin), SessionState::Break };
-        out[n++] = { localToSys(tz, day, def.breakEndMin), localToSys(tz, day, def.closeMin), SessionState::Open };
+        out[n++] = { localToSys(tz, day, def.breakEndMin), localToSys(tz, day, closeMin), SessionState::Open };
     } else {
-        out[n++] = { localToSys(tz, day, def.openMin), localToSys(tz, day, def.closeMin), SessionState::Open };
+        out[n++] = { localToSys(tz, day, def.openMin), localToSys(tz, day, closeMin), SessionState::Open };
     }
+    if (def.postCloseMin >= 0)
+        out[n++] = { localToSys(tz, day, closeMin), localToSys(tz, day, def.postCloseMin), SessionState::Post };
 }
 } // namespace detail
 
@@ -120,7 +138,7 @@ inline SessionStatus evaluate(const SessionDef& def, std::chrono::sys_seconds no
     // live then, but the scan stays simple and total) through +9 days
     // (a Friday close -> Monday open is the longest regular gap; +9
     // covers long weekends of schedule arithmetic with room to spare).
-    detail::Segment segs[40];
+    detail::Segment segs[40]; // worst case: NY 3 segments/day (PRE/OPEN/POST) x 11 days = 33
     int n = 0;
     for (int d = -1; d <= 9; ++d)
         detail::addDaySegments(def, tz, localDay + std::chrono::days{ d }, segs, n);
@@ -135,7 +153,10 @@ inline SessionStatus evaluate(const SessionDef& def, std::chrono::sys_seconds no
             for (int j = 0; j < n; ++j)
                 if (segs[j].begin == segs[i].end) { after = segs[j].state; break; }
             st.verb = after == SessionState::Break ? "break"
-                    : after == SessionState::Open ? "resumes" : "closes";
+                    : after == SessionState::Open ? (segs[i].state == SessionState::Break ? "resumes" : "opens")
+                    : after == SessionState::Post ? "closes"   // regular session closes into post-market
+                    : segs[i].state == SessionState::Post ? "ends" // post-market ends into the night
+                    : "closes";
             st.secondsToChange = std::chrono::duration_cast<std::chrono::seconds>(st.nextChange - now);
             return st;
         }
@@ -145,7 +166,9 @@ inline SessionStatus evaluate(const SessionDef& def, std::chrono::sys_seconds no
     for (int i = 0; i < n; ++i) {
         if (segs[i].begin > now) {
             st.nextChange = segs[i].begin;
-            st.verb = "opens";
+            st.verb = segs[i].state == SessionState::Pre ? "pre-market opens"
+                    : segs[i].state == SessionState::Break ? "resumes"
+                    : segs[i].state == SessionState::Post ? "ends" : "opens";
             st.secondsToChange = std::chrono::duration_cast<std::chrono::seconds>(st.nextChange - now);
             return st;
         }

@@ -6,7 +6,12 @@
 ; (dynamic-link fallback), it is bundled and installed silently instead.
 
 #define MyAppName "SessionBar"
-#define MyAppVersion "0.1.0"
+; Version is SINGLE-SOURCED from the root CMakeLists.txt project(VERSION);
+; build-release.bat and CI pass ISCC /DMyAppVersion=<version>. The literal
+; below is only the fallback for a bare manual ISCC run.
+#ifndef MyAppVersion
+#define MyAppVersion "0.2.0"
+#endif
 #define MyAppExeName "SessionBar.exe"
 
 [Setup]
