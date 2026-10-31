@@ -27,6 +27,7 @@ inline juce::var toVar(const sessionbar::SessionBarState& s) {
     set("pinned", s.pinned);
     set("reserveSpace", s.reserveScreenSpace);
     set("linkEnabled", s.linkEnabled); // v0.3.0 fix: the Link toggle was never persisted before (it reset every restart)
+    set("linkBackground", s.linkBackground); // v0.4.5
     set("dockEdge", (int)s.dockEdge);
     set("winX", s.windowX); set("winY", s.windowY); set("winW", s.windowW); set("winH", s.windowH);
     set("uiVer", s.uiVer);
@@ -60,6 +61,7 @@ inline sessionbar::SessionBarState fromVar(const juce::var& v) {
     s.pinned = gb("pinned", s.pinned);
     s.reserveScreenSpace = gb("reserveSpace", s.reserveScreenSpace);
     s.linkEnabled = gb("linkEnabled", s.linkEnabled);
+    s.linkBackground = gb("linkBackground", s.linkBackground);
     s.dockEdge = (sessionbar::DockEdge)juce::jlimit(0, 3, gi("dockEdge", (int)s.dockEdge));
     s.windowX = gi("winX", s.windowX); s.windowY = gi("winY", s.windowY);
     s.windowW = juce::jlimit(200, 3840, gi("winW", s.windowW));

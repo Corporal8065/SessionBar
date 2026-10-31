@@ -27,6 +27,7 @@ struct SessionBarState {
     bool pinned = true;              // always-on-top: a session bar lives on screen
     bool reserveScreenSpace = false; // family AppBar reservation — strictly opt-in, default OFF
     bool linkEnabled = false;        // v0.2.0: family linking (snap/drag-follow/shared background) — opt-in, default OFF
+    bool linkBackground = true;      // v0.4.5: share background (style/opacity/effect) with linked bars — default ON; the visible toggle Jackson asked for
     DockEdge dockEdge = DockEdge::Top;
     int windowX = 120, windowY = 24, windowW = 1060, windowH = 108; // v0.3.0: +24 for the top toolbar strip (pre-0.3.0 files migrate once, see uiVer)
     // v0.3.0 parity-round additions

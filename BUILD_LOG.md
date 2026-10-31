@@ -2,6 +2,52 @@
 
 # SessionBar — BUILD LOG
 
+## v0.4.6 (2026-10-31) — Arrange takes maximized windows
+
+Jackson (2026-10-31 15:00 PT): "the arrange does not work when
+the application is already meximized".
+
+- ScreenSpace sweep: IsZoomed out of the skip condition; zoomed
+  windows plan from rcNormalPosition via core planArrangeWindow
+  (Arrange.hpp, +8 checks incl. restore plan), snapshot gains
+  wasMaximized (write-once preserved), SW_RESTORE before the
+  fit, Restore re-maximizes per planRestoreWindow. Identical in
+  TickerBar v0.5.7 / MeterBar v0.21.4.
+- MinGW syntax+type check of ScreenSpace.cpp: clean. Suite:
+  core 388 checks, 0 failures; version guard green.
+
+## v0.4.5 (2026-10-31) — Link background toggle; bgEffect in the packet (BLK3)
+
+Jackson (2026-10-31 14:57 PT): "...and to link th ebackground".
+
+- Core BarLink: BgPacket/BgSyncState carry the effect ordinal,
+  bgIsLocalChange is 4-arg (tests updated + effect checks),
+  LinkSlot gains bgEffect appended, magic BLK3.
+- Client gates publish + adoption on the new persisted
+  state.linkBackground (default on; SettingsStore set/get);
+  Settings > Appearance gains the "Link background" toggle under
+  Background effect; applyBg applies the effect + syncFxPump;
+  turning the toggle on re-stamps via notifyBgLinkChanged.
+- Suite: core 380 checks, 0 failures; version guard green.
+
+## v0.4.4 (2026-10-31) — GitHub link; Reposition dropdown; Reserve into the dropdown
+
+Jackson's asks (2026-10-31 14:13 PT): GitHub link in Settings next
+to the version display; MeterBar's Reposition dropdown ported to
+the siblings; Reserve leaves the button row for a ticked menu item.
+
+- reserveBtn_ removed everywhere (grep over app/Source: zero hits);
+  new reposBtn_ opens showRepositionMenu — four ticked dock edges,
+  Pin, ticked "Reserve Screen Space" (same state, same saveSettings
+  + syncScreenSpace path), Move to Display submenu; all actions
+  deferred via callAsync. Stick and the hint toggle not ported (no
+  such features here).
+- Settings About: GitHub button beside "Check for updates" opening
+  https://github.com/Corporal8065/SessionBar; the version note now
+  composes from kVersion instead of a stale v0.3.0 literal.
+- Version: root CMakeLists project VERSION 0.4.3 -> 0.4.4 +
+  SessionBar.iss fallback define; generated header follows.
+
 ## v0.4.3 (2026-10-31) — the app reports its real version (the stale-literal defect, same class as TickerBar's stuck-on-0.4.0)
 
 Same defect as TickerBar v0.5.3 (see its log for the full story),

@@ -223,6 +223,14 @@ public:
             cb->onChange = [this, cb, changed]{ st->bgEffect = cb->getSelectedId() - 1; changed(); };
             y_ += 32;
         }
+        {
+            auto* t = add(new juce::ToggleButton("Link background (share style, opacity and effect with linked bars)"));
+            t->setToggleState(st->linkBackground, juce::dontSendNotification);
+            t->setColour(juce::ToggleButton::textColourId, settingsPalette::text());
+            t->setBounds(24, y_, 512, 22);
+            t->onClick = [this, t, changed]{ st->linkBackground = t->getToggleState(); changed(); owner->onBgLinkToggled(); };
+            y_ += 26;
+        }
         note("Visualizer: MeterBar's particle brushes. Reactive glow: the MiniMeters-style blurred bloom — linked to MeterBar it pulses with the music; on its own it breathes gently. Both render UNDER the cells.");
         sliderRow("Effect palette hue", 0.0, 1.0, st->vizHue, changed);
         sliderRow("Effect palette saturation", 0.0, 1.0, st->vizSat, changed);
@@ -261,9 +269,12 @@ public:
             auto* cu = add(new juce::TextButton("Check for updates"));
             cu->setBounds(24, y_, 200, 24);
             cu->onClick = [this]{ owner->checkForUpdates(); };
+            auto* gh = add(new juce::TextButton("GitHub"));
+            gh->setBounds(232, y_, 140, 24);
+            gh->onClick = []{ juce::URL("https://github.com/Corporal8065/SessionBar").launchInDefaultBrowser(); };
             y_ += 32;
         }
-        note("SessionBar v0.3.0 — session clocks for New York / London / Tokyo with exchange calendars embedded (2026-2028).");
+        note("SessionBar " + kVersion + " — session clocks for New York / London / Tokyo with exchange calendars embedded (2026-2028).");
         status_ = add(new juce::Label({}, owner->screenSpaceStatus()));
         status_->setFont(11.f); status_->setColour(juce::Label::textColourId, settingsPalette::dimText());
         status_->setBounds(24, y_, 512, 18);
@@ -371,10 +382,11 @@ MainComponent::MainComponent() {
         addAndMakeVisible(c);
         c->setInterceptsMouseClicks(false, false); // clicks fall through to the bar drag
     }
-    reserveBtn_.setClickingTogglesState(true);
-    reserveBtn_.setToggleState(state.reserveScreenSpace, juce::dontSendNotification);
-    reserveBtn_.setTooltip("Reserve screen space: Windows keeps maximised windows clear of the docked bar (top/bottom edges)");
-    reserveBtn_.onClick = [this]{ uiClick(ClickSounds::Which::Pop); state.reserveScreenSpace = reserveBtn_.getToggleState(); saveSettings(); syncScreenSpace(); };
+    // v0.4.4: the standalone Reserve button is gone — Reserve lives in
+    // the Reposition menu now ("Reserve Screen Space"), toggling the
+    // same state through the same saveSettings + syncScreenSpace path.
+    reposBtn_.setTooltip("Reposition: dock edge, pin, reserve screen space, move to display");
+    reposBtn_.onClick = [this]{ uiClick(ClickSounds::Which::Pop); showRepositionMenu(); };
     linkBtn_.setClickingTogglesState(true);
     linkBtn_.setToggleState(state.linkEnabled, juce::dontSendNotification);
     linkBtn_.setTooltip("Link: snap, drag, dock and share the background with the other family bars (MeterBar / TickerBar) when their Link is on too");
@@ -401,7 +413,7 @@ MainComponent::MainComponent() {
                                  if (auto* peer = w->getPeer()) peer->setMinimised(true); };
     quitBtn_.onClick = []{ juce::JUCEApplication::getInstance()->systemRequestedQuit(); };
     updateDockBtn();
-    for (auto* b : { &reserveBtn_, &linkBtn_, &arrangeBtn_, &restoreBtn_, &presetBtn_, &stackBtn_,
+    for (auto* b : { &linkBtn_, &arrangeBtn_, &restoreBtn_, &presetBtn_, &reposBtn_, &stackBtn_,
                      &dockBtn_, &settingsBtn_, &updateBtn_, &minBtn_, &quitBtn_ }) addAndMakeVisible(b);
     applyChrome();
     // v0.2.0 (k): family link wiring (protocol: core BarLink.hpp).
@@ -426,11 +438,12 @@ MainComponent::MainComponent() {
             w->setBounds(safe.x, safe.y, safe.w, safe.h);
         }
     };
-    linkClient_.getBg = [this]{ return BarLinkClient::Bg{ (int)state.backgroundStyle, state.backgroundOpacity }; };
+    linkClient_.getBg = [this]{ return BarLinkClient::Bg{ (int)state.backgroundStyle, state.backgroundOpacity, state.bgEffect }; };
     linkClient_.applyBg = [this](const BarLinkClient::Bg& bg){
         state.backgroundStyle = (sessionbar::BackgroundStyle)juce::jlimit(0, 3, bg.style);
         state.backgroundOpacity = juce::jlimit(0.15f, 1.0f, bg.opacity);
-        saveSettings(); repaint();
+        state.bgEffect = juce::jlimit(0, 2, bg.effect); // BLK3: the effect selection rides the packet too
+        saveSettings(); repaint(); syncFxPump(); // an adopted visualizer/glow must actually start (or stop)
         // v0.2.1: an open Settings window must not keep showing the
         // pre-adoption values — rebuild it so the adopted style /
         // opacity are what its controls display.
@@ -444,6 +457,7 @@ MainComponent::MainComponent() {
              : state.dockEdge == sessionbar::DockEdge::Bottom ? 1 : -1;
     };
     linkClient_.isLinked = [this]{ return state.linkEnabled; };
+    linkClient_.bgLinkEnabled = [this]{ return state.linkBackground; }; // v0.4.5
     linkClient_.start();
 
     settingsWin_ = std::make_unique<SessionSettingsWindow>();
@@ -488,8 +502,8 @@ void MainComponent::resized() {
     vertical_ = sideDock && area.getHeight() > area.getWidth();
     struct BtnW { juce::TextButton* b; int w; };
     const BtnW cluster[] = {
-        { &reserveBtn_, 64 }, { &linkBtn_, 48 }, { &arrangeBtn_, 66 }, { &restoreBtn_, 62 },
-        { &presetBtn_, 60 }, { &stackBtn_, 52 }, { &dockBtn_, 62 }, { &settingsBtn_, 72 },
+        { &linkBtn_, 48 }, { &arrangeBtn_, 66 }, { &restoreBtn_, 62 },
+        { &presetBtn_, 60 }, { &reposBtn_, 96 }, { &stackBtn_, 52 }, { &dockBtn_, 62 }, { &settingsBtn_, 72 },
         { &updateBtn_, 68 }, { &minBtn_, 30 }, { &quitBtn_, 52 },
     };
     auto btnVisible = [this](juce::TextButton* b) { return b != &updateBtn_ || updateAvailable_; };
@@ -738,7 +752,7 @@ void MainComponent::saveSettings() {
 // program next to MeterBar. Called on construction and whenever the
 // theme changes.
 void MainComponent::applyChrome() {
-    for (auto* b : { &reserveBtn_, &linkBtn_, &arrangeBtn_, &restoreBtn_, &presetBtn_, &stackBtn_,
+    for (auto* b : { &linkBtn_, &arrangeBtn_, &restoreBtn_, &presetBtn_, &reposBtn_, &stackBtn_,
                      &dockBtn_, &settingsBtn_, &minBtn_, &quitBtn_ }) {
         b->setColour(juce::TextButton::buttonColourId, theme_.panel);
         b->setColour(juce::TextButton::buttonOnColourId, theme_.accent);
@@ -765,8 +779,6 @@ void MainComponent::settingsChanged() {
     applyTheme();
     linkClient_.notifyLocalSettings();
     if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) w->setAlwaysOnTop(state.pinned);
-    if (reserveBtn_.getToggleState() != state.reserveScreenSpace)
-        reserveBtn_.setToggleState(state.reserveScreenSpace, juce::dontSendNotification);
     if (linkBtn_.getToggleState() != state.linkEnabled)
         linkBtn_.setToggleState(state.linkEnabled, juce::dontSendNotification);
     updateDockBtn();
@@ -857,8 +869,6 @@ void MainComponent::syncScreenSpace() {
 #else
     screenSpace_.release();
 #endif
-    if (reserveBtn_.getToggleState() != state.reserveScreenSpace)
-        reserveBtn_.setToggleState(state.reserveScreenSpace, juce::dontSendNotification);
 }
 void MainComponent::notifyWindowGeometryChanged() { syncScreenSpace(); linkClient_.notifyLocalGeometry(); }
 
@@ -916,6 +926,66 @@ void MainComponent::doStackAll() {
 // v0.3.0 item 2: named presets — full configurations, position
 // included; loading one moves the bar (clamped on-screen).
 // =====================================================================
+// v0.4.4: MeterBar's reposition dropdown, ported. SessionBar docks to
+// FOUR edges (MeterBar: two), so all four get items, ticked at the
+// current edge. NOT ported: MeterBar's "Stick" (no stick state here)
+// and its reposition-hint toggle (no hint label here). Reserve rides
+// in this menu now — the standalone button is gone; the item toggles
+// the same state.reserveScreenSpace through the same saveSettings +
+// syncScreenSpace path the button used, so existing users keep their
+// setting. All actions defer via callAsync (MeterBar's 2026-10-13
+// field lesson: moving the window inside the menu callback wedges it).
+void MainComponent::showRepositionMenu() {
+    enum { idTop = 1, idBottom, idLeft, idRight, idPin, idReserve, idDisplayBase = 100 };
+    juce::PopupMenu m;
+    const int edge = (int)state.dockEdge;
+    m.addItem(idTop, "At the Top", true, edge == (int)sessionbar::DockEdge::Top);
+    m.addItem(idBottom, "At the Bottom", true, edge == (int)sessionbar::DockEdge::Bottom);
+    m.addItem(idLeft, "At the Left", true, edge == (int)sessionbar::DockEdge::Left);
+    m.addItem(idRight, "At the Right", true, edge == (int)sessionbar::DockEdge::Right);
+    m.addItem(idPin, "Pin Above Other Windows", true, state.pinned);
+    m.addSeparator();
+    m.addItem(idReserve, "Reserve Screen Space", true, state.reserveScreenSpace);
+    juce::PopupMenu disp;
+    auto displays = juce::Desktop::getInstance().getDisplays().displays;
+    for (int i = 0; i < displays.size(); ++i) disp.addItem(idDisplayBase + i, "Display " + juce::String(i + 1));
+    m.addSubMenu("Move to Display", disp);
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(reposBtn_), [this](int r) {
+        juce::MessageManager::callAsync([this, r] {
+            if (r >= idDisplayBase) { doMoveToDisplay(r - idDisplayBase); return; }
+            switch (r) {
+                case idTop: case idBottom: case idLeft: case idRight:
+                    state.dockEdge = (sessionbar::DockEdge)(r - idTop);
+                    updateDockBtn();
+                    saveSettings();
+                    snapToDockEdge();
+                    break;
+                case idPin:
+                    state.pinned = !state.pinned;
+                    if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) w->setAlwaysOnTop(state.pinned);
+                    saveSettings();
+                    break;
+                case idReserve:
+                    state.reserveScreenSpace = !state.reserveScreenSpace;
+                    saveSettings();
+                    syncScreenSpace();
+                    break;
+                default: break;
+            }
+        });
+    });
+}
+void MainComponent::doMoveToDisplay(int idx) {
+    auto displays = juce::Desktop::getInstance().getDisplays().displays;
+    if (idx < 0 || idx >= displays.size()) return;
+    auto* w = findParentComponentOfClass<juce::DocumentWindow>();
+    if (!w) return;
+    auto b = w->getBounds();
+    b.setCentre(displays[(size_t)idx].userArea.getCentre());
+    w->setBounds(b);
+    snapToDockEdge(); // settle onto the current dock edge of the new display
+}
+
 void MainComponent::showPresetMenu() {
     enum { idNew = 1, idSave, idSaveAs, idOpenFolder, idLoadBase = 100 };
     juce::PopupMenu m;
@@ -1166,6 +1236,14 @@ sessionbar::GlowSettings MainComponent::glowSettings() const {
 }
 void MainComponent::syncFxPump() {
     fxPump_.setRunning(state.bgEffect != 0 || (mascot_ && mascot_->isVisible()));
+}
+
+// v0.4.5: "Link background" flipped in Settings. Turning it ON
+// re-stamps the current background so linked peers adopt it now;
+// turning it OFF needs nothing (the client's publish/adopt paths
+// consult the toggle). Persistence rides settingsChanged's save.
+void MainComponent::onBgLinkToggled() {
+    linkClient_.notifyBgLinkChanged();
 }
 void MainComponent::stepFx() {
     const float dt = 1.f / 30.f;

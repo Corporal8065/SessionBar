@@ -4,6 +4,76 @@ Verification rule (Jackson, 2026-10-29): every item is DONE only with
 proof — the full core suite green after the change, new checks for new
 behaviour, and errors recorded here with their actual text, never hidden.
 
+## v0.4.6 (2026-10-31) — Arrange takes maximized windows (Jackson's ask)
+
+Jackson (2026-10-31 15:00 PT, verbatim): "the arrange does not
+work when the application is already meximized".
+
+- **DONE (all three bars, identical).** Root cause, in the code:
+  the EnumWindows callback in ScreenSpace.cpp skipped IsZoomed
+  windows outright, so a maximized app was never arranged. Now a
+  zoomed window participates through its NORMAL rect
+  (GetWindowPlacement rcNormalPosition): the core plan
+  (planArrangeWindow in Arrange.hpp) fits that rect, the window is
+  snapshotted BEFORE being touched (normal rect + wasMaximized,
+  write-once as ever), un-maximized (SW_RESTORE), then fitted.
+  Restore honours the flag (planRestoreWindow): snapshot rect
+  applied, then SW_MAXIMIZE — never stranded restored-down. The
+  v0.18.1 invariants stand: one-shot per press, write-once
+  snapshots, GUI_INMOVESIZE windows still skipped. Windows TU
+  verified by the MinGW syntax+type check; real arrange
+  behaviour is field-verified on Jackson's PC.
+
+## v0.4.5 (2026-10-31) — visible Link background toggle + effect in the packet (Jackson's ask)
+
+Jackson (2026-10-31 14:57 PT, verbatim): "still need a visual UI
+way of changing the size of each thing thats going by for the
+ticker bar and to link th ebackground". (The Sizes half is
+TickerBar-only, v0.5.6.)
+
+- **Link background — DONE (with TickerBar v0.5.6 / MeterBar
+  v0.21.3).** Diagnosis and protocol fix as in TickerBar's entry:
+  style/opacity already propagated; the EFFECT selection was not
+  in the packet, and no visible control existed. LinkSlot gains
+  bgEffect (appended), magic BLK2 -> BLK3; applyBg applies the
+  effect and re-runs syncFxPump so an adopted visualizer/glow
+  actually starts. Visible control: a persisted "Link
+  background" toggle (state.linkBackground, default ON) in
+  Settings > Appearance under Background effect; the client
+  gates publish + adoption on it, and turning it on re-stamps
+  the current background for peers.
+
+## v0.4.4 (2026-10-31) — GitHub link in Settings; Reposition dropdown ported; Reserve moves into it (Jackson's asks)
+
+Jackson's asks (2026-10-31 14:13 PT, paraphrased faithfully): (a) a
+GitHub link inside each bar's Settings, next to the version display,
+opening the app's own repo; (b) port MeterBar's Reposition dropdown
+to TickerBar and SessionBar so all three bars share the menu; (c) the
+standalone Reserve button leaves the button row and becomes a ticked
+"Reserve Screen Space" item in that dropdown, toggling the same
+state through the same path, settings carrying over untouched.
+
+- **GitHub link — DONE.** Settings About row: "Check for updates"
+  gains a GitHub button beside it opening
+  https://github.com/Corporal8065/SessionBar in the default browser.
+  The stale "SessionBar v0.3.0" note now composes from the
+  single-source kVersion.
+- **Reposition dropdown — DONE.** New Reposition button + menu
+  mirroring MeterBar's structure: four dock-edge items (SessionBar
+  docks to four edges; MeterBar has two), ticked at the current edge;
+  "Pin Above Other Windows"; ticked "Reserve Screen Space"; "Move to
+  Display" submenu. All actions deferred via callAsync (MeterBar's
+  field lesson). NOT ported, because the features don't exist here:
+  MeterBar's "Stick" (no stick state) and its reposition-hint toggle
+  (no hint label).
+- **Reserve into the dropdown — DONE.** reserveBtn_ deleted
+  (member, wiring, cluster row, chrome list, and both toggle
+  mirrors). The menu item flips state.reserveScreenSpace and calls
+  saveSettings() + syncScreenSpace() — the button's exact behaviour,
+  same persisted key. The Settings sheet's own Reserve toggle stays.
+  Button row closes up: Reposition (96 px) sits where the row
+  re-flows after Preset; net row width +32 px.
+
 ## v0.4.3 (2026-10-31) — app reports its real version: stale 0.3.0 literals killed (same defect as TickerBar's stuck-on-0.4.0)
 
 Fiona's report (2026-10-31) was about TickerBar, but the primary

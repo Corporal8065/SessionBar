@@ -70,6 +70,7 @@ public:
     void cellDragMove(juce::Component* cell, const juce::MouseEvent& e);
     bool cellDragEnd(juce::Component* cell, const juce::MouseEvent& e);
     void settingsChanged(); // apply + persist (theme, cells, pin, reserve)
+    void onBgLinkToggled(); // v0.4.5: Settings "Link background" flipped — re-stamp for peers when it turns on
     void notifyWindowGeometryChanged(); // MainWindow moved/resized feed (reserve machine events)
     void snapToDockEdge();
     void cycleDockEdgeFromSettings(); // cycle Top -> Bottom -> Left -> Right + snap (bar Dock button + Settings)
@@ -103,6 +104,11 @@ private:
     void startUpdateDownload();
     // presets (v0.3.0 item 2)
     void showPresetMenu();
+    // reposition dropdown (v0.4.4): MeterBar's showRepositionMenu
+    // ported — dock edges, pin, move-to-display, and (Jackson's
+    // ask) the Reserve toggle that used to be a standalone button.
+    void showRepositionMenu();
+    void doMoveToDisplay(int idx);
     void savePresetInteractive(bool saveAs);
     void loadPresetFile(const juce::File& f);
     void applyWindowRectFromState();
@@ -125,8 +131,8 @@ private:
     ClickSounds clicks_;
 
     juce::Label wordmark_, versionLabel_;
-    juce::TextButton reserveBtn_ { "Reserve" }, linkBtn_ { "Link" }, arrangeBtn_ { "Arrange" },
-                     restoreBtn_ { "Restore" }, presetBtn_ { "Preset" }, stackBtn_ { "Stack" },
+    juce::TextButton linkBtn_ { "Link" }, arrangeBtn_ { "Arrange" },
+                     restoreBtn_ { "Restore" }, presetBtn_ { "Preset" }, reposBtn_ { "Reposition" }, stackBtn_ { "Stack" },
                      dockBtn_ { "Top" }, settingsBtn_ { "Settings" }, updateBtn_ { "Update!" },
                      minBtn_ { "_" }, quitBtn_ { "Quit" };
     juce::ComponentDragger dragger_;

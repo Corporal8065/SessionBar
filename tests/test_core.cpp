@@ -210,6 +210,29 @@ int main() {
         CHECK((arrangeFitAbove(IntRect{ 100, 900, 800, 180 }, mon, 84) == IntRect{ 100, 816, 800, 180 })); // slides above strip
         CHECK((arrangeFitAbove(IntRect{ 0, 0, 1920, 1080 }, mon, 84) == IntRect{ 0, 0, 1920, 996 }));
     }
+    // ---------- Arrange: maximized windows (v0.4.6) ----------
+    {
+        const IntRect zoomedRect{ 0, 0, 1920, 1080 };   // a maximized window's live rect: the whole monitor
+        const IntRect normalRect{ 100, 10, 800, 600 };  // its rcNormalPosition — overlaps the top strip
+        // zoomed: participates, restore-first, fit input is the NORMAL rect (never the zoomed one)
+        auto zp = planArrangeWindow(true, false, true, zoomedRect, normalRect);
+        CHECK(zp.participate && zp.restoreFirst && zp.fitInput == normalRect);
+        // ...and the fit of that normal rect slides it clear of the strip, like any window
+        CHECK((arrangeFit(zp.fitInput, IntRect{ 0, 0, 1920, 1080 }, 84) == IntRect{ 100, 84, 800, 600 }));
+        // normal window: participates on its live rect, no restore step
+        auto np = planArrangeWindow(true, false, false, normalRect, normalRect);
+        CHECK(np.participate && !np.restoreFirst && np.fitInput == normalRect);
+        // the historical skips stay skips: invisible, iconic — zoomed or not
+        CHECK(!planArrangeWindow(false, false, true, zoomedRect, normalRect).participate);
+        CHECK(!planArrangeWindow(true, true, true, zoomedRect, normalRect).participate);
+        // a zoomed window with a degenerate normal rect is left alone
+        CHECK(!planArrangeWindow(true, false, true, zoomedRect, IntRect{ 0, 0, 0, 0 }).participate);
+        // restore plan: a was-maximized snapshot re-maximizes after its rect is applied; others don't
+        auto rp = planRestoreWindow(true);
+        CHECK(rp.applyRect && rp.remaximize);
+        auto rp2 = planRestoreWindow(false);
+        CHECK(rp2.applyRect && !rp2.remaximize);
+    }
     // ---------- Reserve state machine (MeterBar v0.18.1 discipline) ----------
     {
         ReserveMachine m;
@@ -467,26 +490,27 @@ int main() {
     const long long now = 200000;
     BgSyncState sync;
     // first sight of our own background is a change (nothing published yet)
-    CHECK(bgIsLocalChange(sync, 1, 100));
-    sync.publishedStyle = 1; sync.publishedPct = 100;
-    CHECK(!bgIsLocalChange(sync, 1, 100));
-    CHECK(bgIsLocalChange(sync, 1, 55));  // opacity moved
-    CHECK(bgIsLocalChange(sync, 2, 100)); // style moved
+    CHECK(bgIsLocalChange(sync, 1, 100, 0));
+    sync.publishedStyle = 1; sync.publishedPct = 100; sync.publishedEffect = 0;
+    CHECK(!bgIsLocalChange(sync, 1, 100, 0));
+    CHECK(bgIsLocalChange(sync, 1, 55, 0));  // opacity moved
+    CHECK(bgIsLocalChange(sync, 2, 100, 0)); // style moved
+    CHECK(bgIsLocalChange(sync, 1, 100, 1)); // effect moved (BLK3)
     // a peer publishes a new background: adopted once
     LinkShared sh;
     auto& peer = sh.slots[0]; peer.appId = 0; peer.linked = 1; peer.heartbeatMs = now;
-    peer.bgSeq = 7; peer.bgStyle = 2; peer.bgOpacityPct = 40;
+    peer.bgSeq = 7; peer.bgStyle = 2; peer.bgOpacityPct = 40; peer.bgEffect = 2;
     BgPacket out;
     CHECK(bgAdoption(sh, 2, sync, now, out));
-    CHECK(out.style == 2 && out.opacityPct == 40);
+    CHECK(out.style == 2 && out.opacityPct == 40 && out.effect == 2);
     // the adopted values are now OUR published values: no echo publish
-    CHECK(!bgIsLocalChange(sync, 2, 40));
+    CHECK(!bgIsLocalChange(sync, 2, 40, 2));
     // the same seq is never adopted twice
     CHECK(!bgAdoption(sh, 2, sync, now, out));
     // a genuinely new seq adopts again
-    peer.bgSeq = 8; peer.bgStyle = 0; peer.bgOpacityPct = 90;
+    peer.bgSeq = 8; peer.bgStyle = 0; peer.bgOpacityPct = 90; peer.bgEffect = 1;
     CHECK(bgAdoption(sh, 2, sync, now, out));
-    CHECK(out.style == 0 && out.opacityPct == 90);
+    CHECK(out.style == 0 && out.opacityPct == 90 && out.effect == 1);
     // unlinked peers, stale peers, seq 0 and self never supply a background
     peer.linked = 0; peer.bgSeq = 9;
     CHECK(!bgAdoption(sh, 2, sync, now, out));
@@ -649,9 +673,9 @@ int main() {
         CHECK(!audioPacket(m0, now, pkt));
         m0.audioSeq = 1; m0.audioLevel = 0.5f;
         CHECK(audioPacket(m0, now, pkt) && pkt[3] == 0.5f);
-        BgSyncState bs; bs.publishedStyle = 1; bs.publishedPct = 55;
+        BgSyncState bs; bs.publishedStyle = 1; bs.publishedPct = 55; bs.publishedEffect = 0;
         bgForceRepublish(bs);
-        CHECK(bgIsLocalChange(bs, 1, 55));
+        CHECK(bgIsLocalChange(bs, 1, 55, 0));
     }
     // ---------- group field map: one visualizer field across the linked bars ----------
     {
