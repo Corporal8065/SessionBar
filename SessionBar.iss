@@ -10,7 +10,7 @@
 ; build-release.bat and CI pass ISCC /DMyAppVersion=<version>. The literal
 ; below is only the fallback for a bare manual ISCC run.
 #ifndef MyAppVersion
-#define MyAppVersion "0.4.2"
+#define MyAppVersion "0.4.3"
 #endif
 #define MyAppExeName "SessionBar.exe"
 

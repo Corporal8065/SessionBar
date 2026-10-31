@@ -6,17 +6,18 @@ juce_add_binary_data(SessionBarAssets
         ../assets/click-bloop.wav
         ../assets/click-sparkle.wav)
 
-juce_add_gui_app(SessionBar PRODUCT_NAME "SessionBar" VERSION "0.4.2"
+juce_add_gui_app(SessionBar PRODUCT_NAME "SessionBar" VERSION "${PROJECT_VERSION}"
     COMPANY_NAME "SessionBar" BUNDLE_ID "com.sessionbar.app"
     ICON_BIG "icon/icon_big.png" ICON_SMALL "icon/icon_small.png")
 target_sources(SessionBar PRIVATE
     Source/Main.cpp
     Source/MainComponent.cpp
     Source/ScreenSpace.cpp)
-target_include_directories(SessionBar PRIVATE Source ${CMAKE_CURRENT_SOURCE_DIR}/../core/include)
+target_include_directories(SessionBar PRIVATE Source ${CMAKE_CURRENT_SOURCE_DIR}/../core/include
+    ${CMAKE_BINARY_DIR}/generated) # v0.4.3: the generated SessionBarVersion.h (single-source version)
 target_compile_definitions(SessionBar PRIVATE
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_APPLICATION_NAME_STRING="SessionBar"
-    JUCE_APPLICATION_VERSION_STRING="0.4.2"
+    JUCE_APPLICATION_VERSION_STRING="${PROJECT_VERSION}"
     # NOMINMAX (MeterBar v0.12.1 lesson): windows.h defines min/max as
     # macros that mangle std::min/std::max call sites on MSVC.
     NOMINMAX)

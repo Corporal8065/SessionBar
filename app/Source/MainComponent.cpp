@@ -9,8 +9,16 @@
 #if JUCE_WINDOWS
  #include <windows.h> // native rects for the AppBar sync (physical pixels)
 #endif
-static const char* kVersion = "v0.3.0";
-static const char* kVersionNum = "0.3.0";
+// v0.4.3: the version string comes from the GENERATED header — root
+// CMakeLists project(VERSION) is the single source of truth (the
+// MeterBar v0.19 pattern, via MainComponent.h's SessionBarVersion.h
+// include). Before this, the literals here (kVersion / kVersionNum)
+// and getApplicationVersion() in Main.cpp were hard-coded and last
+// bumped at v0.3.0: every later build reported 0.3.0 to the updater
+// and in the Settings sheet, so the updater offered the newest
+// release forever — the same defect as TickerBar's stuck-on-0.4.0
+// (Fiona's report), present here by construction.
+static const juce::String kVersion = juce::String("v") + sessionbar::kVersionString;
 static juce::String dockEdgeName(sessionbar::DockEdge e) {
     switch (e) {
         case sessionbar::DockEdge::Top: return "Top";
@@ -982,7 +990,7 @@ void MainComponent::startUpdateCheck(bool fromLaunch) {
     updateState_ = std::make_shared<sbupdate::SharedState>();
     updateCheckPending_ = true;
     updateCheckFromLaunch_ = fromLaunch;
-    sbupdate::checkLatestAsync(updateState_, juce::String(kVersionNum));
+    sbupdate::checkLatestAsync(updateState_, sessionbar::kVersionString);
 }
 void MainComponent::checkForUpdates() {
     if (!sbupdate::configured()) {

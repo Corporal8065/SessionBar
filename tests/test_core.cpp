@@ -23,6 +23,7 @@
 #include <sessionbar/Glow.hpp>
 #include <sessionbar/Mascot.hpp>
 #include <sessionbar/CellLayout.hpp>
+#include "SessionBarVersion.h" // v0.4.3: generated from the root project() VERSION
 #include <vector>
 
 static int failures = 0, checks = 0;
@@ -722,6 +723,23 @@ int main() {
         CHECK((int)BackgroundStyle::Pastel == 3);
         CHECK((int)DockEdge::Left == 2 && (int)DockEdge::Right == 3);
         CHECK(d.windowH == 108);
+    }
+
+    // ---------- v0.4.3: single-source version (generated header) ----------
+    {
+        // sessionbar::kVersionString is the exact string the updater
+        // compares against and getApplicationVersion() reports; it is
+        // generated from the root project() VERSION. If it ever
+        // disagrees with the project version, the build is lying
+        // about its own version (the stuck-on-0.4.0 class: hard-coded
+        // literals in Main.cpp / MainComponent.cpp, never bumped —
+        // here they froze at 0.3.0).
+        CHECK(std::string(sessionbar::kVersionString) == EXPECTED_PROJECT_VERSION);
+        CHECK(std::string(SESSIONBAR_VERSION_STRING) == EXPECTED_PROJECT_VERSION);
+        const std::string composed = std::to_string(SESSIONBAR_VERSION_MAJOR) + "."
+                                   + std::to_string(SESSIONBAR_VERSION_MINOR) + "."
+                                   + std::to_string(SESSIONBAR_VERSION_PATCH);
+        CHECK(composed == std::string(sessionbar::kVersionString));
     }
 
     std::printf("%d checks, %d failures\n", checks, failures);

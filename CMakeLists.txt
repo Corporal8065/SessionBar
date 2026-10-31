@@ -1,5 +1,17 @@
 cmake_minimum_required(VERSION 3.22)
-project(SessionBar VERSION 0.4.2 LANGUAGES C CXX)
+# v0.4.3: THIS project() VERSION IS THE SINGLE SOURCE OF TRUTH for the
+# app version. It feeds the generated SessionBarVersion.h (UI string,
+# application version, updater), the juce_add_gui_app version in
+# app/CMakeLists.txt, and — via build-release.bat / CI passing ISCC
+# /DMyAppVersion — the installer. Before v0.4.3 the version was ALSO
+# hard-coded in Main.cpp / MainComponent.cpp, where the literals went
+# stale at 0.3.0 and every later build reported 0.3.0 to the updater
+# (the same defect as TickerBar's stuck-on-0.4.0, Fiona's report); do
+# not add another copy. Bump it here, only here. (MeterBar made this
+# move at its v0.19.)
+project(SessionBar VERSION 0.4.3 LANGUAGES C CXX)
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/app/SessionBarVersion.h.in
+               ${CMAKE_BINARY_DIR}/generated/SessionBarVersion.h)
 # Static MSVC runtime (/MT) so a built SessionBar.exe runs on any
 # Windows 10/11 PC with NO Visual C++ Redistributable installed
 # (MeterBar v0.15 rule). Must be set before any target is created
@@ -24,7 +36,17 @@ endif()
 enable_testing()
 add_executable(test_core tests/test_core.cpp)
 target_link_libraries(test_core PRIVATE sessionbar_core)
+target_include_directories(test_core PRIVATE ${CMAKE_BINARY_DIR}/generated)
+target_compile_definitions(test_core PRIVATE
+  EXPECTED_PROJECT_VERSION="${PROJECT_VERSION}")
 add_test(NAME core COMMAND test_core)
+# v0.4.3: guard against the stale-literal class — fails if a bare
+# version literal reappears in the app TUs or any version carrier
+# drifts from the project() VERSION above (see the script).
+add_test(NAME version_guard COMMAND ${CMAKE_COMMAND}
+  -DGUARD_APP=SessionBar -DGUARD_ISS=SessionBar.iss -DGUARD_HEADER=SessionBarVersion.h
+  -DAPP_SOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR} -DAPP_BINARY_DIR=${CMAKE_BINARY_DIR}
+  -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/version_guard.cmake)
 
 # ---- JUCE app ----
 if(SESSIONBAR_BUILD_APP)

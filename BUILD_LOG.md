@@ -2,6 +2,51 @@
 
 # SessionBar — BUILD LOG
 
+## v0.4.3 (2026-10-31) — the app reports its real version (the stale-literal defect, same class as TickerBar's stuck-on-0.4.0)
+
+Same defect as TickerBar v0.5.3 (see its log for the full story),
+present here by construction: the app's current-version strings
+were hard-coded literals last bumped at v0.3.0 —
+getApplicationVersion() in Main.cpp returned "0.3.0", and
+MainComponent.cpp carried `kVersion = "v0.3.0"` (Settings sheet
+label, updater dialogs) plus `kVersionNum = "0.3.0"`, which was
+passed to the updater as the current version. Every build since
+0.3.0 therefore believed it WAS 0.3.0 and offered the newest
+release forever. This was the primary root cause of Fiona's
+stuck-on-0.4.0 report against TickerBar — her manual install of
+the new Setup.exe had actually worked; the app was misreporting
+its own version. (The v0.4.1 relaunch-entry fix below is a real
+but secondary defect; see the correction appended to it.)
+
+- Fix (MeterBar's v0.19 pattern, ported identically): the root
+  project() VERSION is now the single source of truth.
+  configure_file generates SessionBarVersion.h from
+  app/SessionBarVersion.h.in (`sessionbar::kVersionString`);
+  getApplicationVersion(), kVersion, and the updater call all
+  read it; app/CMakeLists.txt takes its gui-app VERSION and
+  JUCE_APPLICATION_VERSION_STRING from ${PROJECT_VERSION}. No
+  version literal remains in either TU (grep-verified); the only
+  semver literal left in app/Source is a format example in an
+  Updater.h comment.
+- Guards against this class: 3 new compiled checks in test_core
+  (generated header's string and major/minor/patch must equal the
+  project version) plus a new ctest entry, version_guard
+  (tests/version_guard.cmake — the identical file ships in
+  TickerBar), which fails on any bare semver literal
+  assigned/returned in Main.cpp / MainComponent.cpp or any
+  carrier drift. Negative-tested in TickerBar: bites on a
+  reintroduced literal and on a drifted .iss; passes clean.
+- Version 0.4.2 → 0.4.3 (root CMakeLists.txt project VERSION —
+  now the only place a bump is needed besides the .iss fallback).
+- Verification: core suite 376 → 379 checks, 0 failures; ctest
+  2/2 (core + version_guard). Full app build on this VM (JUCE
+  8.0.4, Linux): the SessionBar target compiled and LINKED. (The
+  first app-build attempt failed at CONFIGURE on the stale
+  pre-existing build-app cache, which still pointed at a deleted
+  JUCE checkout; the dir was wiped and the fresh build is the one
+  reported here.) The Windows installer compile remains CI's job
+  on the v0.4.3 tag.
+
 ## v0.4.2 (2026-10-31) — visibility floor on link applies (off-screen on load, again)
 
 Jackson's report (2026-10-31, #crypto-book): "Session bar is also
@@ -49,6 +94,16 @@ relaunched. SessionBar.iss had the identical single entry.
   .iss sections verified intact post-edit, gated entry inside [Run].
   The installer compile is CI's job on the v0.4.1 tag (no ISCC on
   this VM).
+- Correction (appended 2026-10-31, v0.4.3): the framing above and
+  in the v0.4.1 heading overstates this entry's defect for Fiona's
+  symptom. The missing relaunch entry is real — a silent in-app
+  update never relaunches without it — but it does NOT explain an
+  app still reporting its OLD version after a manual install,
+  which replaces the files regardless of the [Run] section. That
+  symptom's primary cause was the stale hard-coded version
+  literals (Main.cpp / MainComponent.cpp; 0.4.0 in TickerBar, 0.3.0
+  here), fixed in v0.4.3 / TickerBar v0.5.3. This entry's fix
+  stands as a real, secondary defect.
 
 ## v0.4.0 (2026-10-31) — one linked background + the feel pass this bar missed
 

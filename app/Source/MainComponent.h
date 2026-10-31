@@ -8,6 +8,7 @@
 #include <sessionbar/Visualizer.hpp>
 #include <sessionbar/Glow.hpp>
 #include <sessionbar/Mascot.hpp>
+#include "SessionBarVersion.h" // v0.4.3: generated — single-source version
 #include <map>
 #include <memory>
 #include <string>
