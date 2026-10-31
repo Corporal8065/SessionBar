@@ -4,6 +4,35 @@ Verification rule (Jackson, 2026-10-29): every item is DONE only with
 proof — the full core suite green after the change, new checks for new
 behaviour, and errors recorded here with their actual text, never hidden.
 
+## v0.4.1 (2026-10-31) — installer relaunches after silent in-app updates (Fiona's TickerBar report)
+
+Fiona's report (2026-10-31) was about TickerBar: after updating —
+in-app, and even after a manual install of the new Setup.exe — the
+app still reported the old version and kept offering the update.
+SessionBar's installer carried the identical defect by construction,
+so the identical cure is ported here before it strands anyone.
+
+- **Silent-relaunch [Run] entry — DONE.** SessionBar.iss carried
+  only the interactive `nowait postinstall skipifsilent` launch
+  entry, which never fires on the silent install the in-app updater
+  performs (/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS
+  /NORESTART, after which the app quits) — the new version never
+  relaunched. Ported MeterBar's cure verbatim — a second [Run] entry
+  with NO skipifsilent, gated to silent installs via
+  `Check: WizardSilent` (it landed there with MeterBar's v0.19
+  updater work).
+- **Version 0.4.0 → 0.4.1** in the single-source places: root
+  CMakeLists.txt, app/CMakeLists.txt (incl.
+  JUCE_APPLICATION_VERSION_STRING), SessionBar.iss fallback define.
+- **Updater fix ONLY:** the pending free-resize change for
+  SessionBar is Jackson's decision and is deliberately NOT in this
+  commit.
+- **Proof:** full core suite green after the change — 364 checks,
+  0 failures (count unchanged from v0.4.0; installer-only change).
+  The .iss was re-read after editing: all sections intact, the
+  gated entry inside [Run]. Windows CI compiles the real installer
+  on the tag, as usual.
+
 ## v0.4.0 (2026-10-31) — one linked background across the bars + the missed feel pass (Jackson's ask)
 
 Jackson's words (dictated, 2026-10-31): "the addition to MeterBar

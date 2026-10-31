@@ -2,6 +2,29 @@
 
 # SessionBar — BUILD LOG
 
+## v0.4.1 (2026-10-31) — silent-update relaunch: MeterBar's WizardSilent entry ported
+
+Same defect, same cure as TickerBar v0.5.1 (see its log): Fiona's
+2026-10-31 report showed TickerBar stuck on 0.4.0 after its 0.5.0
+update because the installer's only [Run] launch entry was
+`nowait postinstall skipifsilent`, which a silent in-app update
+(/SILENT /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS /NORESTART, after
+which the app quits) never triggers — the new version never
+relaunched. SessionBar.iss had the identical single entry.
+
+- Fix: MeterBar's gated silent-relaunch entry (its v0.19 updater
+  work), ported with its comment adapted to this repo:
+  `Filename: "{app}\{#MyAppExeName}"; Flags: nowait; Check: WizardSilent`
+  Interactive installs keep the existing postinstall offer.
+- Version 0.4.0 → 0.4.1 (root CMakeLists.txt, app/CMakeLists.txt
+  incl. JUCE_APPLICATION_VERSION_STRING, SessionBar.iss fallback).
+- No resize changes — SessionBar free-resize is a separate pending
+  decision for Jackson and is not in this commit.
+- Verification: core suite rebuilt and run — 364 checks, 0 failures.
+  .iss sections verified intact post-edit, gated entry inside [Run].
+  The installer compile is CI's job on the v0.4.1 tag (no ISCC on
+  this VM).
+
 ## v0.4.0 (2026-10-31) — one linked background + the feel pass this bar missed
 
 Jackson's ask (dictated, same day): the background-graphics
