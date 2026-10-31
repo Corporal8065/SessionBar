@@ -2,6 +2,35 @@
 
 # SessionBar — BUILD LOG
 
+## v0.4.0 (2026-10-31) — one linked background + the feel pass this bar missed
+
+Jackson's ask (dictated, same day): the background-graphics
+change "needs to be applied to not only MeterBar but when you
+connect the other 2 softwares to all link and instead use the
+combination of the 3 resolutions as the sizing for it, and then
+when sound is played with specific frequencies and or transients
+that we have set up will do its thing." Per-item record in
+REQUESTS.md. Landed identically in all three repos (TickerBar
+v0.5.0, MeterBar v0.21.0).
+
+- **Core:** `fieldMap` / `fieldToLocal` / `fieldDotVisible` in
+  BarLink.hpp (group field across the linked bars; identity
+  when unlinked), PLUS the silence gate ported into
+  Visualizer.hpp from TickerBar's — this bar's core never got
+  it, so its white ambient dots idled in silence. The two
+  Visualizer.hpp files are now identical modulo namespace.
+  Suite 341 → 364 checks, 0 failures.
+- **App:** drawVisualizerBackground renders particles through
+  the group map AND receives the full feel-pass recipe it
+  missed: blur kernel 7/2.8 (was 5/1.8), crisp pass 0.45 (was
+  0.9), dots 1.35× plumper, and the 0.18 black scrim. Full g++
+  syntax/type check of the edited TU against JUCE 8.0.4
+  headers: 0 errors. No complete Windows build or visual
+  verification runs on this VM — CI after push plus Jackson's
+  eyes on the linked strip are the proof, as before.
+- Committed locally only; the push + release are the usual
+  separate step.
+
 ## v0.3.0 (2026-10-29) — the parity round (MeterBar feature family + field fixes)
 
 Everything MeterBar had that this bar didn't, ported in one round,

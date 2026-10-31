@@ -4,6 +4,50 @@ Verification rule (Jackson, 2026-10-29): every item is DONE only with
 proof — the full core suite green after the change, new checks for new
 behaviour, and errors recorded here with their actual text, never hidden.
 
+## v0.4.0 (2026-10-31) — one linked background across the bars + the missed feel pass (Jackson's ask)
+
+Jackson's words (dictated, 2026-10-31): "the addition to MeterBar
+where we change the background graphics needs to be applied to
+not only MeterBar but when you connect the other 2 softwares to
+all link and instead use the combination of the 3 resolutions as
+the sizing for it, and then when sound is played with specific
+frequencies and or transients that we have set up will do its
+thing."
+
+- **Group field map — DONE in code, core-proven.** New pure core
+  in `BarLink.hpp` (identical in all three repos): `fieldMap` /
+  `fieldToLocal` / `fieldDotVisible`. When the bars are linked,
+  the visualizer's unit field spans the GROUP rect — the union of
+  the linked bars' screen rects, i.e. the combination of their
+  resolutions — and this bar renders only its own slice of it,
+  from MeterBar's BarLink audio broadcast. 17 new checks pin the
+  seam arithmetic, the three-bar middle third, vertical stacks,
+  degenerate-rect fallback and dot culling.
+- **The feel-pass treatment, finally — DONE in code.** This bar
+  was not part of the TickerBar v0.4.0 / MeterBar v0.20.3 round:
+  its visualizer still blurred 5/1.8, drew the crisp pass at 0.9,
+  drew dots unplumped, had NO 0.18 scrim, and its core had NO
+  silence gate (white ambient dots idled on screen in silence).
+  All of it now matches the family: Gaussian kernel 7/2.8, crisp
+  pass 0.45, dots 1.35×, the 0.18 black scrim, and the activity
+  gate ported into the core from TickerBar's (the two
+  Visualizer.hpp files are now identical modulo namespace) with
+  the same 6 gate checks. Suite 341 → 364 checks, 0 failures.
+  Honest note: this changes this bar's visualizer look even
+  UNLINKED — deliberately, because the treatment IS the family
+  background now, and a linked strip cannot read as one
+  background while one bar renders the old recipe. Everything
+  else about unlinked behaviour is untouched, and the linked
+  group mapping itself is identity when unlinked.
+- **Render — DONE in code.** `drawVisualizerBackground` maps
+  each particle through the field map; dot radius is
+  deliberately NOT remapped — physical dot size is preserved,
+  only positions come from the group. The edited translation
+  unit passes a full g++ syntax/type check against the JUCE
+  8.0.4 headers (0 errors). The Windows CI build after push,
+  and Jackson's eyes on the linked strip, are the remaining
+  proof — nothing visual was verified here.
+
 ## v0.2.1 (2026-10-29, field-test fix round)
 
 Jackson field-tested v0.2.0 on Windows the same night and filed four

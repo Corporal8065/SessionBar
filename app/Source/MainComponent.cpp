@@ -1173,28 +1173,45 @@ void MainComponent::drawVisualizerBackground(juce::Graphics& g) {
         vizBlur_ = juce::Image(juce::Image::RGB, iw, ih, true);
     }
     auto vs = vizSettings();
+    // v0.4.0: LINKED, the particle field spans the GROUP — the
+    // union of the linked bars' screen rects — and this bar draws
+    // only its slice of it (core fieldMap; the glow below has
+    // sampled in group space since item 17). Unlinked or alone the
+    // map is the bar-local one.
+    auto group = linkClient_.groupRect();
+    auto own = getScreenBounds();
+    if (group.isEmpty() || own.isEmpty()) group = own;
+    const auto fm = sessionbar::fieldMap(
+        sessionbar::IntRect{ own.getX(), own.getY(), own.getWidth(), own.getHeight() },
+        sessionbar::IntRect{ group.getX(), group.getY(), group.getWidth(), group.getHeight() }, iw, ih);
     {
         juce::Graphics ig(vizCache_);
         ig.fillAll(juce::Colours::black);
         for (auto& pt : viz_.particles()) {
             auto c = viz_.colorFor(pt, vs);
             ig.setColour(juce::Colour(c.r, c.g, c.b));
-            const float px = pt.x * (float)iw, py = pt.y * (float)ih;
-            const float r = pt.size;
+            float px, py;
+            sessionbar::fieldToLocal(fm, pt.x, pt.y, px, py);
+            const float r = pt.size * 1.35f; // v0.4.0: plumper dots (family feel pass — SessionBar joins here)
+            if (!sessionbar::fieldDotVisible(px, py, r, iw, ih)) continue; // another bar's slice of the field
             ig.fillEllipse(px - r, py - r, r * 2.f, r * 2.f);
         }
     }
     vizBlur_ = vizCache_;
     vizBlur_.duplicateIfShared();
-    juce::ImageConvolutionKernel kernel(5);
-    kernel.createGaussianBlur(1.8f);
+    juce::ImageConvolutionKernel kernel(7);
+    kernel.createGaussianBlur(2.8f); // v0.4.0: the family's stronger blur (was 5/1.8 here)
     kernel.applyToImage(vizBlur_, vizCache_, vizBlur_.getBounds());
     const float op = juce::jlimit(0.15f, 1.0f, state.backgroundOpacity);
     g.setOpacity(op);
     g.drawImage(vizBlur_, bounds.toFloat());
-    g.setOpacity(0.9f * op);
+    g.setOpacity(0.45f * op); // v0.4.0: crisp pass backed off, as in the sibling bars (was 0.9)
     g.drawImage(vizCache_, bounds.toFloat());
     g.setOpacity(1.0f);
+    // v0.4.0: the family's dark scrim over the whole effect —
+    // SessionBar never received it in the feel-pass round.
+    g.setColour(juce::Colours::black.withAlpha(0.18f));
+    g.fillRect(bounds);
 }
 void MainComponent::drawGlowBackground(juce::Graphics& g) {
     auto bounds = getLocalBounds();
