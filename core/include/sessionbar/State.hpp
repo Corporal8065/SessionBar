@@ -35,6 +35,7 @@ struct SessionBarState {
     bool clickSounds = false;       // UI click sounds on bar buttons (MeterBar parity) — default OFF
     int stateColorScheme = 0;       // SessionColors scheme ordinal (0 = Family)
     int bgEffect = 0;               // background effect: 0 styled, 1 visualizer particles, 2 reactive glow
+    int vizStyle = 0;               // v0.4.7: visualizer style — 0 Bubbles (particles), 1 Lines (flowing ribbons); rides the link packet as bgEffect 1 vs 3 (BLK4)
     float vizHue = 0.83f, vizSat = 0.85f, vizSpread = 0.75f, vizCycle = 24.f; // visualizer/glow palette
     std::vector<std::string> cellOrder = { "NY", "LDN", "TYO" }; // v0.3.0: drag-reorderable cell order (ids, not display names)
     std::map<std::string, int> cellWidths; // per-session explicit cell width px, keyed by cell id (absent = auto-share)

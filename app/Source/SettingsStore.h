@@ -34,6 +34,7 @@ inline juce::var toVar(const sessionbar::SessionBarState& s) {
     set("clickSounds", s.clickSounds);
     set("stateColorScheme", s.stateColorScheme);
     set("bgEffect", s.bgEffect);
+    set("vizStyle", s.vizStyle); // v0.4.7: 0 Bubbles / 1 Lines
     set("vizHue", s.vizHue); set("vizSat", s.vizSat); set("vizSpread", s.vizSpread); set("vizCycle", s.vizCycle);
     juce::StringArray order; for (auto& id : s.cellOrder) order.add(juce::String(id));
     set("cellOrder", order);
@@ -70,6 +71,7 @@ inline sessionbar::SessionBarState fromVar(const juce::var& v) {
     s.clickSounds = gb("clickSounds", s.clickSounds);
     s.stateColorScheme = juce::jlimit(0, 4, gi("stateColorScheme", s.stateColorScheme));
     s.bgEffect = juce::jlimit(0, 2, gi("bgEffect", s.bgEffect));
+    s.vizStyle = juce::jlimit(0, 1, gi("vizStyle", s.vizStyle)); // v0.4.7 (absent -> Bubbles)
     s.vizHue = gf("vizHue", s.vizHue); s.vizSat = gf("vizSat", s.vizSat);
     s.vizSpread = gf("vizSpread", s.vizSpread); s.vizCycle = gf("vizCycle", s.vizCycle);
     if (auto* arr = g("cellOrder").getArray()) {
