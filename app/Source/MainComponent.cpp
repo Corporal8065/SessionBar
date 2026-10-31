@@ -399,7 +399,24 @@ MainComponent::MainComponent() {
     // v0.2.0 (k): family link wiring (protocol: core BarLink.hpp).
     linkClient_.getBounds = [this]{ return currentWindowBounds(); };
     linkClient_.setBounds = [this](juce::Rectangle<int> r){
-        if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) w->setBounds(r);
+        if (auto* w = findParentComponentOfClass<juce::DocumentWindow>()) {
+            // v0.4.2: EVERY remote apply (stack / follow / snap /
+            // group-dock) passes the visibility floor (core
+            // WindowGeom, ensureRectVisible). Before this, the link
+            // could move the bar off-screen a tick after the
+            // (clamped) startup restore, and the position-save feed
+            // kept it there — Jackson's "stuck somewhere i cannot
+            // see upon load up" report. Meaningfully-visible targets
+            // pass through untouched.
+            std::vector<sessionbar::IntRect> areas;
+            for (auto& d : juce::Desktop::getInstance().getDisplays().displays) {
+                auto ua = d.userArea;
+                areas.push_back({ ua.getX(), ua.getY(), ua.getWidth(), ua.getHeight() });
+            }
+            auto safe = sessionbar::ensureRectVisible(
+                { r.getX(), r.getY(), r.getWidth(), r.getHeight() }, areas);
+            w->setBounds(safe.x, safe.y, safe.w, safe.h);
+        }
     };
     linkClient_.getBg = [this]{ return BarLinkClient::Bg{ (int)state.backgroundStyle, state.backgroundOpacity }; };
     linkClient_.applyBg = [this](const BarLinkClient::Bg& bg){

@@ -537,6 +537,37 @@ int main() {
         CHECK(c3.x == 0 && c3.y == 0);
         CHECK(clampRectToWorkAreas(inside, {}) == inside);
     }
+    // ---------- v0.4.2: WindowGeom visibility floor (link applies) ----------
+    {
+        std::vector<IntRect> areas{ IntRect{0, 0, 1920, 1040} };
+        std::vector<IntRect> two{ IntRect{0, 0, 1920, 1040}, IntRect{1920, 0, 1920, 1040} };
+        // fully off-screen: the floor fires — size kept, primary area,
+        // centred horizontally, near the top
+        IntRect lost{ 5000, 3000, 1060, 108 };
+        CHECK(!rectMeaningfullyVisible(lost, areas));
+        auto f = ensureRectVisible(lost, areas);
+        CHECK(f.x == (1920 - 1060) / 2 && f.y == 24 && f.w == 1060 && f.h == 108);
+        CHECK(rectMeaningfullyVisible(f, areas));
+        // genuinely on the second display: untouched
+        IntRect onSecond{ 2000, 50, 1060, 108 };
+        CHECK(rectMeaningfullyVisible(onSecond, two));
+        CHECK(ensureRectVisible(onSecond, two) == onSecond);
+        // partially visible ABOVE the floor (120x108 showing): untouched
+        IntRect partial{ 1800, 100, 1060, 108 };
+        CHECK(rectMeaningfullyVisible(partial, areas));
+        CHECK(ensureRectVisible(partial, areas) == partial);
+        // a 20 px sliver is below the floor: rescued to the primary
+        IntRect sliver{ 1900, 100, 1060, 108 };
+        CHECK(!rectMeaningfullyVisible(sliver, areas));
+        CHECK(ensureRectVisible(sliver, areas).x == (1920 - 1060) / 2);
+        // sunk so only 10 px of height shows: below the floor too
+        CHECK(!rectMeaningfullyVisible(IntRect{ 100, 1030, 1060, 108 }, areas));
+        // straddling two monitors with a real chunk on each: untouched
+        IntRect straddle{ 1700, 100, 1060, 108 };
+        CHECK(ensureRectVisible(straddle, two) == straddle);
+        // no areas = no opinion
+        CHECK(ensureRectVisible(lost, {}) == lost);
+    }
     // ---------- v0.3.0: SessionColors ----------
     {
         CHECK(sessionStateColour(0, SessionState::Open) == Rgb({47, 214, 138}));   // Family green, verbatim

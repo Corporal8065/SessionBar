@@ -4,6 +4,47 @@ Verification rule (Jackson, 2026-10-29): every item is DONE only with
 proof — the full core suite green after the change, new checks for new
 behaviour, and errors recorded here with their actual text, never hidden.
 
+## v0.4.2 (2026-10-31) — link applies get a visibility floor (Jackson's "stuck somewhere i cannot see" report)
+
+Jackson's report (2026-10-31, #crypto-book): "Session bar is also
+for me still stuck somewhere i cannot see upon load up and have no
+idea how to fix plz help".
+
+Root cause: the v0.3.0 clamp guards the two places a SAVED rect is
+applied — the startup restore (MainWindow constructor) and preset
+apply. It never covered the family LINK: with Link on, stack plans,
+drag follows, snap settles and group docks move the bar AFTER
+startup through the link client's setBounds callback, unguarded. A
+stale stack request in the shared block, or a peer docked against
+space no monitor owns any more, could move the just-restored bar
+off-screen within a tick of launch — and the position-save feed
+then saved the off-screen rect, so every later launch restored
+(clamped) and re-lost it the same way.
+
+- **Visibility floor in core WindowGeom — DONE.** New pure rule,
+  identical in all three repos: `rectMeaningfullyVisible` (at
+  least 100x40 px of the rect inside ONE display work area — the
+  rect itself when it is smaller than that) and
+  `ensureRectVisible`. A meaningfully-visible rect — a bar on a
+  second monitor, a straddle — is returned untouched; below the
+  floor the rect keeps its size and lands on the primary work
+  area, centred horizontally, near the top. 12 new checks: fully
+  off-screen rescued, second display untouched, above-floor
+  partial untouched, sliver and sunk rects rescued, straddle
+  untouched, no-areas no-op. Suite 364 → 376 checks, 0 failures.
+- **Link setBounds funnel guarded — DONE.** This bar's
+  `linkClient_.setBounds` callback — the single funnel every
+  remote apply passes through — now runs its target through
+  `ensureRectVisible` with the live displays' user areas before
+  touching the window. Same port in TickerBar v0.5.2 and MeterBar
+  v0.21.1, which share the defect by construction.
+- **Version 0.4.1 → 0.4.2** in the single-source places: root
+  CMakeLists.txt, app/CMakeLists.txt (incl.
+  JUCE_APPLICATION_VERSION_STRING), SessionBar.iss fallback.
+  Proof: full core suite green at 376 checks, 0 failures; the
+  edited app TU passes a full g++ type-check vs JUCE 8.0.4.
+  Windows CI + Jackson's eyes remain the visual proof.
+
 ## v0.4.1 (2026-10-31) — installer relaunches after silent in-app updates (Fiona's TickerBar report)
 
 Fiona's report (2026-10-31) was about TickerBar: after updating —

@@ -2,6 +2,31 @@
 
 # SessionBar — BUILD LOG
 
+## v0.4.2 (2026-10-31) — visibility floor on link applies (off-screen on load, again)
+
+Jackson's report (2026-10-31, #crypto-book): "Session bar is also
+for me still stuck somewhere i cannot see upon load up and have no
+idea how to fix plz help". The v0.3.0 startup clamp was doing its
+job — and the LINK was undoing it a tick later. The clamp covers
+the startup restore and preset apply; stack plans, drag follows,
+snap settles and group docks land through the link client's
+setBounds callback with no guard at all, and the position-save
+feed then persisted wherever the link had put the bar.
+
+- Core: `rectMeaningfullyVisible` / `ensureRectVisible` added to
+  WindowGeom.hpp (identical in all three repos, namespace aside):
+  at least 100x40 px inside one work area = visible, returned
+  untouched; below that, same size onto the primary work area,
+  centred horizontally, near the top.
+- App: the link client's setBounds callback now routes every
+  remote apply through the floor with the live displays' user
+  areas before touching the window.
+- Tests: 12 new checks — off-screen rescued, second display and
+  straddle untouched, above-floor partial untouched, sliver and
+  sunk rects rescued. Suite 364 → 376 checks, 0 failures.
+- Version 0.4.1 → 0.4.2 (root CMakeLists.txt, app/CMakeLists.txt
+  incl. JUCE_APPLICATION_VERSION_STRING, SessionBar.iss fallback).
+
 ## v0.4.1 (2026-10-31) — silent-update relaunch: MeterBar's WizardSilent entry ported
 
 Same defect, same cure as TickerBar v0.5.1 (see its log): Fiona's
