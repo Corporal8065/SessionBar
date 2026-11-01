@@ -132,6 +132,17 @@ inline IntRect followRect(IntRect ownStart, IntRect leaderStart, IntRect leaderN
 // int ordinal for exactly this reason; 2/3 (left/right) are accepted
 // here too so a MeterBar/TickerBar leader can stack this bar.
 using DockArg = int; // this app's groupDockRect argument type (the other bars use ReserveEdge)
+// GROUP-DOCK PARTICIPATION RULE (freeze fix, ported from MeterBar
+// v0.20.2 — this core never received it): a bar group-dock-follows a
+// docked peer ONLY while it is not itself reserve-docked.
+// groupDockRect is a pure translation to "flush against the peer", so
+// when BOTH linked bars are docked, each one's target is computed from
+// the other's LATEST rect and the pair chases itself at the link tick
+// rate, flooding both message threads with setBounds/moved traffic —
+// the field shape of "UI stopped responding after linking"
+// (2026-10-29). A docked bar's position is owned by its own reserve
+// machine; the link must not move it.
+inline bool groupDockFollows(int selfDockedEdge) { return selfDockedEdge < 0; }
 inline IntRect groupDockRect(IntRect leader, IntRect follower, int edgeOrdinal) {
     IntRect out = follower;
     switch (edgeOrdinal) {
