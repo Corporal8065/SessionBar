@@ -42,9 +42,12 @@ private:
 // The bar itself: a MeterBar-style TOP TOOLBAR STRIP (v0.3.0 — the
 // v0.2.1 cluster sat vertically centred mid-bar; Jackson's field
 // report) holding the wordmark on the left and the control cluster
-// on the right in MeterBar's order:
-// Reserve | Link | Arrange | Restore | Preset | Stack | Dock |
-// Settings | Update! | _ | Quit. Below it, one cell per visible
+// on the right. v0.4.8: the cluster is ICON-ONLY — Link | Settings
+// | Update! | Menu (☰) — and Presets, Arrange, Restore, Stack,
+// Reposition, Minimize and Quit live in the Menu. (The pre-v0.4.8
+// text cluster ran Link | Arrange | Restore | Preset | Reposition
+// | Stack | Dock | Settings | Update! | _ | Quit; Reserve had
+// already moved into Reposition at v0.4.4.) Below the strip, one cell per visible
 // session (drag sideways to reorder, v0.3.0), then the Anime-theme
 // mascot. Borderless and always-on-top (state.pinned); position +
 // every setting persist to the settings JSON on change. A 1 Hz
@@ -73,7 +76,7 @@ public:
     void onBgLinkToggled(); // v0.4.5: Settings "Link background" flipped — re-stamp for peers when it turns on
     void notifyWindowGeometryChanged(); // MainWindow moved/resized feed (reserve machine events)
     void snapToDockEdge();
-    void cycleDockEdgeFromSettings(); // cycle Top -> Bottom -> Left -> Right + snap (bar Dock button + Settings)
+    void cycleDockEdgeFromSettings(); // cycle Top -> Bottom -> Left -> Right + snap (Settings dock control; the bar's Dock button went at v0.4.8 — the Reposition submenu's ticked edges are its direct form)
     void doArrange();
     void doRestore();
     void doStackAll();                  // v0.3.0 item 12
@@ -93,7 +96,6 @@ private:
     void saveSettings();
     void applyTheme();
     void applyChrome();   // MeterBar toolbar colouring for the control cluster
-    void updateDockBtn(); // the Dock button's label mirrors state.dockEdge
     juce::Rectangle<int> currentWindowBounds() const;
     // updater (v0.3.0 item 1)
     void startUpdateCheck(bool fromLaunch);
@@ -102,12 +104,16 @@ private:
     void showUpdatePanel(const sbupdate::ReleaseInfo& r);
     void showPrivateRepoFallback(const juce::String& detail);
     void startUpdateDownload();
-    // presets (v0.3.0 item 2)
-    void showPresetMenu();
-    // reposition dropdown (v0.4.4): MeterBar's showRepositionMenu
-    // ported — dock edges, pin, move-to-display, and (Jackson's
-    // ask) the Reserve toggle that used to be a standalone button.
-    void showRepositionMenu();
+    // v0.4.8: the burger Menu — holds the compressed toolbar:
+    // the Presets submenu (v0.3.0 item 2), Arrange / Restore /
+    // Stack items, the Reposition submenu (the v0.4.4 dropdown —
+    // dock edges, pin, move-to-display, and the Reserve toggle),
+    // then Minimize / Quit. The builders reproduce the old
+    // standalone menus verbatim; showMainMenu's callback handles
+    // the unified item ids.
+    void showMainMenu();
+    juce::PopupMenu buildPresetSubMenu(juce::Array<juce::File>& filesOut);
+    juce::PopupMenu buildRepositionSubMenu();
     void doMoveToDisplay(int idx);
     void savePresetInteractive(bool saveAs);
     void loadPresetFile(const juce::File& f);
@@ -131,10 +137,11 @@ private:
     ClickSounds clicks_;
 
     juce::Label wordmark_, versionLabel_;
-    juce::TextButton linkBtn_ { "Link" }, arrangeBtn_ { "Arrange" },
-                     restoreBtn_ { "Restore" }, presetBtn_ { "Preset" }, reposBtn_ { "Reposition" }, stackBtn_ { "Stack" },
-                     dockBtn_ { "Top" }, settingsBtn_ { "Settings" }, updateBtn_ { "Update!" },
-                     minBtn_ { "_" }, quitBtn_ { "Quit" };
+    // v0.4.8: icon-only cluster (see the class comment). The
+    // Update! indicator stays text on purpose — it is temporary
+    // and must be unmissable.
+    juce::TextButton linkBtn_ { "🔗" }, settingsBtn_ { "⚙" }, burgerBtn_ { "☰" },
+                     updateBtn_ { "Update!" };
     juce::ComponentDragger dragger_;
     juce::Rectangle<int> lastSavedBounds_;
     bool vertical_ = false;
