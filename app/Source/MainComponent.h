@@ -24,6 +24,25 @@ class SessionSettingsWindow;
 class MascotView;
 class CellSplitter;
 
+// v0.4.9: the icon buttons' private LookAndFeel — stock V4 in every
+// respect EXCEPT the font. The v0.4.8 glyph buttons render as tofu
+// on real Windows (Jackson's TickerBar v0.6.0 field evidence): the
+// default button typeface has no emoji glyphs. Segoe UI Emoji
+// carries them (Segoe UI Symbol is the fallback face); if neither
+// exists at runtime the default sans is used, which is the pre-fix
+// behaviour. Applied per button, so every other button (Update!
+// included) keeps the existing font.
+class IconButtonLookAndFeel : public juce::LookAndFeel_V4 {
+public:
+    juce::Font getTextButtonFont(juce::TextButton&, int buttonHeight) override {
+        const float h = juce::jmin(16.0f, (float)buttonHeight * 0.62f);
+        for (auto* name : { "Segoe UI Emoji", "Segoe UI Symbol" })
+            if (juce::Font::findAllTypefaceNames().contains(name))
+                return juce::Font(juce::FontOptions(juce::String(name), h, juce::Font::plain));
+        return juce::Font(juce::FontOptions(h));
+    }
+};
+
 // 30 Hz pump for the animated backgrounds + mascot (v0.3.0) — the
 // bar's own timer runs at 1 Hz for the session clocks. Runs only
 // while an effect is on or the mascot is visible (family pattern,
@@ -137,6 +156,7 @@ private:
     ClickSounds clicks_;
 
     juce::Label wordmark_, versionLabel_;
+    IconButtonLookAndFeel iconLnf_; // v0.4.9: declared before the buttons so it outlives them
     // v0.4.8: icon-only cluster (see the class comment). The
     // Update! indicator stays text on purpose — it is temporary
     // and must be unmissable.

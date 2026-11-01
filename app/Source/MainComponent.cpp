@@ -405,6 +405,9 @@ MainComponent::MainComponent() {
     };
     burgerBtn_.setTooltip("Menu: presets, arrange / restore windows, stack linked bars, reposition, minimize, quit");
     burgerBtn_.onClick = [this]{ uiClick(ClickSounds::Which::Pop); showMainMenu(); };
+    // v0.4.9: the glyph buttons wear the emoji typeface (see
+    // IconButtonLookAndFeel) — everything else keeps the stock font.
+    for (auto* b : { &linkBtn_, &settingsBtn_, &burgerBtn_ }) b->setLookAndFeel(&iconLnf_);
     updateBtn_.setVisible(false);
     updateBtn_.onClick = [this]{ uiClick(ClickSounds::Which::Pop);
         if (pendingRelease_.ok && pendingRelease_.newer) showUpdatePanel(pendingRelease_); };
