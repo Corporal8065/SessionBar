@@ -65,8 +65,8 @@ inline sessionbar::SessionBarState fromVar(const juce::var& v) {
     s.linkBackground = gb("linkBackground", s.linkBackground);
     s.dockEdge = (sessionbar::DockEdge)juce::jlimit(0, 3, gi("dockEdge", (int)s.dockEdge));
     s.windowX = gi("winX", s.windowX); s.windowY = gi("winY", s.windowY);
-    s.windowW = juce::jlimit(200, 3840, gi("winW", s.windowW));
-    s.windowH = juce::jlimit(56, 1200, gi("winH", s.windowH));
+    s.windowW = juce::jlimit(200, 7680, gi("winW", s.windowW)); // v0.4.12: saved-size clamps widened with the free-resize limits (were 3840/1200)
+    s.windowH = juce::jlimit(56, 7680, gi("winH", s.windowH));
     s.uiVer = gi("uiVer", 0); // files written before v0.3.0 carry no marker — the app migrates them once
     s.clickSounds = gb("clickSounds", s.clickSounds);
     s.stateColorScheme = juce::jlimit(0, 4, gi("stateColorScheme", s.stateColorScheme));

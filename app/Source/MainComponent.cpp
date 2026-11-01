@@ -371,7 +371,7 @@ MainComponent::MainComponent() {
     // adjust the saved size ONCE (uiVer).
     if (state.uiVer < 3) {
         state.windowH = juce::jlimit(56, 1200, state.windowH + 24);
-        state.windowW = juce::jlimit(200, 3840, std::max(state.windowW, 1280));
+        state.windowW = juce::jlimit(200, 7680, std::max(state.windowW, 1280));
         state.uiVer = 3;
     }
     theme_ = themeByName(state.themeName);
@@ -546,7 +546,7 @@ void MainComponent::resized() {
             }
         }
         if (auto* w = findParentComponentOfClass<juce::DocumentWindow>())
-            w->setResizeLimits(1180, 92, 3840, 1200);
+            w->setResizeLimits(420, 92, 7680, 2160); // v0.4.12: free resize (see Main.cpp)
     } else {
         auto wm = r.removeFromTop(24);
         wordmark_.setBounds(wm.removeFromLeft(104).withSizeKeepingCentre(104, 20));
@@ -580,7 +580,7 @@ void MainComponent::resized() {
         }
         if (anime && mascot_) mascot_->setBounds(r.removeFromTop(96));
         if (auto* w = findParentComponentOfClass<juce::DocumentWindow>())
-            w->setResizeLimits(200, 340, 1200, 3840);
+            w->setResizeLimits(200, 340, 2160, 7680); // v0.4.12: free resize, vertical form (floors unchanged: full-width cells + 3 x 56 px cell minimums)
     }
     notifyWindowGeometryChanged(); // a resize is a reserve-machine event (family discipline)
 }
@@ -796,11 +796,11 @@ void MainComponent::snapToDockEdge() {
     // edge with a portrait shape) swaps the window's axes so the bar
     // actually turns (item 8's "true vertical orientation").
     if (side && b.getWidth() > b.getHeight()) {
-        const int nw = juce::jlimit(200, 1200, b.getHeight());
-        const int nh = juce::jlimit(340, 1600, b.getWidth());
+        const int nw = juce::jlimit(200, 2160, b.getHeight()); // v0.4.12: axis-swap clamps widened with the free-resize limits (were 1200/1600)
+        const int nh = juce::jlimit(340, 7680, b.getWidth());
         b.setSize(nw, nh);
     } else if (!side && b.getHeight() > b.getWidth()) {
-        const int nw = juce::jlimit(420, 3840, b.getHeight());
+        const int nw = juce::jlimit(420, 7680, b.getHeight());
         const int nh = juce::jlimit(92, 300, b.getWidth());
         b.setSize(nw, nh);
     }
@@ -1300,7 +1300,7 @@ void MainComponent::drawVisualizerBackground(juce::Graphics& g) {
     const int ih = juce::jlimit(1, 270, bounds.getHeight() / 2);
     if (!vizCache_.isValid() || vizCache_.getWidth() != iw || vizCache_.getHeight() != ih) {
         vizCache_ = juce::Image(juce::Image::RGB, iw, ih, true);
-        vizBlur_ = juce::Image(juce::Image::RGB, iw, ih, true);
+        vizBlurFrame_ = 0; // v0.4.12: layer resized — force a blur recompute below
     }
     auto vs = vizSettings();
     // v0.4.0: LINKED, the particle field spans the GROUP — the
@@ -1359,11 +1359,36 @@ void MainComponent::drawVisualizerBackground(juce::Graphics& g) {
             }
         }
     }
-    vizBlur_ = vizCache_;
-    vizBlur_.duplicateIfShared();
-    juce::ImageConvolutionKernel kernel(15);
-    kernel.createGaussianBlur(5.5f); // v0.4.7: a much stronger melt (was 7/2.8) — Jackson: the dots still read as distinct circles; they should smudge together into one wash
-    kernel.applyToImage(vizBlur_, vizCache_, vizBlur_.getBounds());
+    // v0.4.12 (LAG FIX — MeterBar v0.23.1 twin): the blur used to be a
+    // full 15x15 Gaussian over the whole half-res layer EVERY frame,
+    // inside paint — with the synced background on, that constant
+    // paint cost is what starves drag events across the linked stack
+    // (it runs whether or not audio is flowing; pausing MeterBar does
+    // not stop it). Now the convolution runs on a QUARTER-res copy
+    // (capped 240x135) with the spatially equivalent kernel (9 taps /
+    // sigma 2.75 == the old 15 / 5.5 at half scale), every 2nd frame,
+    // held between recomputes and upscaled on draw. The crisp pass
+    // below still renders every frame.
+    {
+        const int bw = juce::jmax(1, iw / 2), bh = juce::jmax(1, ih / 2);
+        const bool blurSizeChanged = !vizBlurSrc_.isValid() || vizBlurSrc_.getWidth() != bw || vizBlurSrc_.getHeight() != bh
+                                  || !vizBlur_.isValid() || vizBlur_.getWidth() != bw || vizBlur_.getHeight() != bh;
+        if (blurSizeChanged) {
+            vizBlurSrc_ = juce::Image(juce::Image::RGB, bw, bh, true);
+            vizBlur_ = juce::Image(juce::Image::RGB, bw, bh, true);
+        }
+        if (blurSizeChanged || (vizBlurFrame_++ % 2) == 0) {
+            {
+                juce::Graphics bg(vizBlurSrc_);
+                bg.drawImage(vizCache_, 0, 0, bw, bh, 0, 0, iw, ih); // downsample
+            }
+            vizBlur_ = vizBlurSrc_;
+            vizBlur_.duplicateIfShared(); // the convolution reads source while writing dest — they must not share pixels
+            juce::ImageConvolutionKernel kernel(9);
+            kernel.createGaussianBlur(2.75f); // v0.4.12: == v0.4.7's 15/5.5 melt, at quarter res
+            kernel.applyToImage(vizBlur_, vizBlurSrc_, vizBlur_.getBounds());
+        }
+    }
     const float op = juce::jlimit(0.15f, 1.0f, state.backgroundOpacity);
     g.setOpacity(op);
     g.drawImage(vizBlur_, bounds.toFloat());

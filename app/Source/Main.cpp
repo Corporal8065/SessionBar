@@ -17,7 +17,7 @@ public:
         content = mc;
         setContentOwned(mc, true);
         setResizable(true, false);
-        setResizeLimits(1180, 92, 3840, 1200);
+        setResizeLimits(420, 92, 7680, 2160); // v0.4.12: free resize (TickerBar v0.4.0 parity) — the 1180 floor was the old fixed-layout clamp; 420 = 3 cells at the solver's 120 px floor + boundaries + margins
         // v0.3.0 item 14 (the field bug): after dock/arrange/link
         // manipulation this bar once restored OFF-SCREEN — running,
         // visible in the taskbar preview, impossible to grab. The

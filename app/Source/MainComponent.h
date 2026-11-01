@@ -193,6 +193,8 @@ private:
     sessionbar::GlowField glow_;
     sessionbar::MascotAnim mascotAnim_;
     juce::Image vizCache_, vizBlur_, glowCache_;
+    juce::Image vizBlurSrc_;                 // v0.4.12: quarter-res downsample the blur convolves (lag fix — MeterBar v0.23.1 twin)
+    int vizBlurFrame_ = 0;                   // v0.4.12: blur recompute cadence — every 2nd frame, held between
     double fxClock_ = 0.0;
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MainComponent)
 };
