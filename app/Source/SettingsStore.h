@@ -71,7 +71,7 @@ inline sessionbar::SessionBarState fromVar(const juce::var& v) {
     s.clickSounds = gb("clickSounds", s.clickSounds);
     s.stateColorScheme = juce::jlimit(0, 4, gi("stateColorScheme", s.stateColorScheme));
     s.bgEffect = juce::jlimit(0, 2, gi("bgEffect", s.bgEffect));
-    s.vizStyle = juce::jlimit(0, 1, gi("vizStyle", s.vizStyle)); // v0.4.7 (absent -> Bubbles)
+    s.vizStyle = juce::jlimit(0, 2, gi("vizStyle", s.vizStyle)); // v0.4.7 (absent -> Bubbles); v0.4.13: Field (2) admitted
     s.vizHue = gf("vizHue", s.vizHue); s.vizSat = gf("vizSat", s.vizSat);
     s.vizSpread = gf("vizSpread", s.vizSpread); s.vizCycle = gf("vizCycle", s.vizCycle);
     if (auto* arr = g("cellOrder").getArray()) {

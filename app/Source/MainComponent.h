@@ -190,6 +190,7 @@ private:
     FxPump fxPump_;
     sessionbar::VisualizerEngine viz_;
     sessionbar::VisualizerLines vizLines_; // v0.4.7: the Lines style's ribbon model (pure core)
+    sessionbar::VisualizerField vizField_; // v0.4.13: the Field style's vortex model (pure core)
     sessionbar::GlowField glow_;
     sessionbar::MascotAnim mascotAnim_;
     juce::Image vizCache_, vizBlur_, glowCache_;
