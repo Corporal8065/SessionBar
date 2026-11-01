@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.22)
 # (the same defect as TickerBar's stuck-on-0.4.0, Fiona's report); do
 # not add another copy. Bump it here, only here. (MeterBar made this
 # move at its v0.19.)
-project(SessionBar VERSION 0.4.9 LANGUAGES C CXX)
+project(SessionBar VERSION 0.4.10 LANGUAGES C CXX)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/app/SessionBarVersion.h.in
                ${CMAKE_BINARY_DIR}/generated/SessionBarVersion.h)
 # Static MSVC runtime (/MT) so a built SessionBar.exe runs on any
@@ -18,6 +18,13 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/app/SessionBarVersion.h.in
 # (CMP0091). MSVC-only; inert on other toolchains.
 if(MSVC)
   set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  # v0.4.10: /utf-8 — pin the source AND execution character sets
+  # to UTF-8, so no non-ASCII literal anywhere can ever again be
+  # decoded as Windows-1252 (the family icon-glyph mojibake; the
+  # glyphs themselves now also travel as explicit byte escapes —
+  # see core/include/sessionbar/Glyphs.hpp). MSVC-only; inert
+  # elsewhere.
+  add_compile_options(/utf-8)
 endif()
 # C++20: the session core is built on std::chrono's IANA time-zone
 # database (locate_zone / zoned_time) — real DST rules, no hand-rolled

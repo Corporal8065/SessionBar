@@ -8,6 +8,7 @@
 #include <sessionbar/Visualizer.hpp>
 #include <sessionbar/Glow.hpp>
 #include <sessionbar/Mascot.hpp>
+#include <sessionbar/Glyphs.hpp> // v0.4.10: icon glyphs as explicit UTF-8 bytes
 #include "SessionBarVersion.h" // v0.4.3: generated — single-source version
 #include <map>
 #include <memory>
@@ -160,7 +161,13 @@ private:
     // v0.4.8: icon-only cluster (see the class comment). The
     // Update! indicator stays text on purpose — it is temporary
     // and must be unmissable.
-    juce::TextButton linkBtn_ { "🔗" }, settingsBtn_ { "⚙" }, burgerBtn_ { "☰" },
+    // v0.4.10: glyph text is built from the core's explicit UTF-8
+    // byte escapes via fromUTF8 — the raw literals used up to
+    // v0.4.9 were decoded as Windows-1252 by MSVC and reached the
+    // buttons as mojibake (see sessionbar/Glyphs.hpp).
+    juce::TextButton linkBtn_ { juce::String::fromUTF8(sessionbar::glyphLinkUtf8()) },
+                     settingsBtn_ { juce::String::fromUTF8(sessionbar::glyphSettingsUtf8()) },
+                     burgerBtn_ { juce::String::fromUTF8(sessionbar::glyphMenuUtf8()) },
                      updateBtn_ { "Update!" };
     juce::ComponentDragger dragger_;
     juce::Rectangle<int> lastSavedBounds_;

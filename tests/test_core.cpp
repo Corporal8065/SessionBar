@@ -8,6 +8,7 @@
 //   code under test reads — if locate_zone/zoned_time disagreed with
 //   the published calendars, these checks fail.
 #include <cstdio>
+#include <cstdint>
 #include <string>
 #include <sessionbar/Sessions.hpp>
 #include <sessionbar/Calendars.hpp>
@@ -23,6 +24,7 @@
 #include <sessionbar/Glow.hpp>
 #include <sessionbar/Mascot.hpp>
 #include <sessionbar/CellLayout.hpp>
+#include <sessionbar/Glyphs.hpp>
 #include "SessionBarVersion.h" // v0.4.3: generated from the root project() VERSION
 #include <vector>
 
@@ -832,6 +834,41 @@ int main() {
                                    + std::to_string(SESSIONBAR_VERSION_MINOR) + "."
                                    + std::to_string(SESSIONBAR_VERSION_PATCH);
         CHECK(composed == std::string(sessionbar::kVersionString));
+    }
+
+    // ---- Glyphs (v0.4.10): the toolbar icon glyphs must be
+    // EXACTLY the UTF-8 encoding of their codepoints. The family
+    // field failure was mojibake — MSVC decoded the raw literals
+    // as Windows-1252, so each sequence's first byte surfaced as
+    // a Latin-1 char (0xF0, 0xE2). Pin every glyph two
+    // ways: against an independent codepoint->UTF-8 encoder
+    // written here, and against the byte sequences themselves.
+    {
+        auto encodeUtf8 = [](std::uint32_t cp) {
+            std::string out;
+            if (cp < 0x80) {
+                out += (char)cp;
+            } else if (cp < 0x800) {
+                out += (char)(0xC0 | (cp >> 6));
+                out += (char)(0x80 | (cp & 0x3F));
+            } else if (cp < 0x10000) {
+                out += (char)(0xE0 | (cp >> 12));
+                out += (char)(0x80 | ((cp >> 6) & 0x3F));
+                out += (char)(0x80 | (cp & 0x3F));
+            } else {
+                out += (char)(0xF0 | (cp >> 18));
+                out += (char)(0x80 | ((cp >> 12) & 0x3F));
+                out += (char)(0x80 | ((cp >> 6) & 0x3F));
+                out += (char)(0x80 | (cp & 0x3F));
+            }
+            return out;
+        };
+        CHECK(std::string(sessionbar::glyphLinkUtf8()) == encodeUtf8(0x1F517));
+        CHECK(std::string(sessionbar::glyphLinkUtf8()) == std::string("\xF0\x9F\x94\x97", 4));
+        CHECK(std::string(sessionbar::glyphSettingsUtf8()) == encodeUtf8(0x2699));
+        CHECK(std::string(sessionbar::glyphSettingsUtf8()) == std::string("\xE2\x9A\x99", 3));
+        CHECK(std::string(sessionbar::glyphMenuUtf8()) == encodeUtf8(0x2630));
+        CHECK(std::string(sessionbar::glyphMenuUtf8()) == std::string("\xE2\x98\xB0", 3));
     }
 
     std::printf("%d checks, %d failures\n", checks, failures);
