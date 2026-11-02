@@ -103,6 +103,11 @@ public:
     void checkForUpdates();             // v0.3.0 item 1
     juce::Colour stateColour(sessionbar::SessionState s) const; // v0.3.0 item 6
     bool fxActive() const { return state.bgEffect != 0; }
+    // v0.4.14: this bar is link-grouped (Link on + at least one live
+    // linked peer) — the state in which the shared background rules
+    // (parent opacity under the effects, opacity-scaled cell panels)
+    // apply. Unlinked rendering never consults it.
+    bool linkGrouped() { return state.linkEnabled && linkClient_.liveLinkedPeers() > 0; }
     bool vertical() const { return vertical_; }
     void uiClick(ClickSounds::Which w); // v0.3.0 item 5
     juce::String screenSpaceStatus() const { return juce::String(screenSpace_.statusInfo()); }

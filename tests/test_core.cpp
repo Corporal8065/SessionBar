@@ -528,13 +528,37 @@ int main() {
     CHECK(!bgAdoption(sh, 2, sync, now, out));
     peer.bgSeq = 11; peer.appId = 2; // the peer slot carries OUR id: self, ignored
     CHECK(!bgAdoption(sh, 2, sync, now, out));
-    // two peers changed at once: the LAST in slot order wins, both are marked seen
+    // v0.4.14 parent ownership: two peers changed at once — the
+    // PARENT (lowest appId) supplies the background; the follower
+    // peer's packet is not consumed at all.
     LinkShared sh2; BgSyncState sync2;
     auto& p0 = sh2.slots[0]; p0.appId = 0; p0.linked = 1; p0.heartbeatMs = now; p0.bgSeq = 3; p0.bgStyle = 1; p0.bgOpacityPct = 70;
     auto& p1 = sh2.slots[1]; p1.appId = 1; p1.linked = 1; p1.heartbeatMs = now; p1.bgSeq = 4; p1.bgStyle = 2; p1.bgOpacityPct = 30;
     CHECK(bgAdoption(sh2, 2, sync2, now, out));
+    CHECK(out.style == 1 && out.opacityPct == 70);
+    CHECK(sync2.seenSeq[0] == 3 && sync2.seenSeq[1] == 0);
+    CHECK(sync2.adoptedFrom == 0);
+    CHECK(!bgAdoption(sh2, 2, sync2, now, out));
+    // the parent itself adopts from NOBODY, however fresh the
+    // followers' packets are (the pre-v0.4.14 swap defect: at link
+    // join each bar adopted the other's stale background)
+    BgSyncState syncP;
+    CHECK(!bgAdoption(sh2, 0, syncP, now, out));
+    CHECK(syncP.adoptedFrom == -1);
+    // with the parent gone, the next-lowest member becomes the
+    // parent: its standing packet is adopted even though it was
+    // never consumed before (parent turnover)
+    p0.linked = 0;
+    CHECK(bgAdoption(sh2, 2, sync2, now, out));
     CHECK(out.style == 2 && out.opacityPct == 30);
-    CHECK(sync2.seenSeq[0] == 3 && sync2.seenSeq[1] == 4);
+    CHECK(sync2.adoptedFrom == 1);
+    // and when the original parent returns with the SAME seq it had
+    // before, its packet is authoritative again — adoptedFrom, not
+    // the seen marker, decides (the values changed hands meanwhile)
+    p0.linked = 1;
+    CHECK(bgAdoption(sh2, 2, sync2, now, out));
+    CHECK(out.style == 1 && out.opacityPct == 70);
+    CHECK(sync2.adoptedFrom == 0);
     CHECK(!bgAdoption(sh2, 2, sync2, now, out));
 }
 
