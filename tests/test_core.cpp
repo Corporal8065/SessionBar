@@ -22,6 +22,7 @@
 #include <sessionbar/SessionColors.hpp>
 #include <sessionbar/Visualizer.hpp>
 #include <sessionbar/Glow.hpp>
+#include <sessionbar/CellPulse.hpp>
 #include <sessionbar/Mascot.hpp>
 #include <sessionbar/CellLayout.hpp>
 #include <sessionbar/Glyphs.hpp>
@@ -653,6 +654,93 @@ int main() {
             CHECK(fr.w == 600 && fr.h == 40);
         }
     }
+}
+// ---- v0.4.16: parent governs CONTINUOUSLY (items 3/4) + CellPulse (items 1/2) ----
+{
+    using namespace sessionbar;
+    const long long now = 400000;
+    BgPacket out;
+    // Parent (appId 0, linkSeq 1) + follower (appId 2, linkSeq 2).
+    LinkShared sh;
+    auto& par = sh.slots[0]; par.appId = 0; par.linked = 1; par.heartbeatMs = now; par.linkSeq = 1;
+    par.bgSeq = 5; par.bgStyle = 1; par.bgOpacityPct = 70; par.bgEffect = 2;
+    auto& fol = sh.slots[2]; fol.appId = 2; fol.linked = 1; fol.heartbeatMs = now; fol.linkSeq = 2; fol.bgSeq = 3;
+    BgSyncState sy;
+    // AT JOIN: the follower adopts the parent's style/opacity/effect.
+    CHECK(bgAdoption(sh, 2, sy, now, out));
+    CHECK(out.style == 1 && out.opacityPct == 70 && out.effect == 2);
+    CHECK(!bgAdoption(sh, 2, sy, now, out)); // settled: no re-adopt, no echo
+    // PARENT CHANGE WHILE LINKED: a fresh bgSeq with new values is
+    // adopted on the next scan.
+    par.bgSeq = 6; par.bgStyle = 3; par.bgOpacityPct = 45; par.bgEffect = 4;
+    CHECK(bgAdoption(sh, 2, sy, now, out));
+    CHECK(out.style == 3 && out.opacityPct == 45 && out.effect == 4);
+    CHECK(!bgAdoption(sh, 2, sy, now, out));
+    // FOLLOWER DIVERGENCE (defect 6): the follower changes its OWN
+    // background while linked — its publish records the divergent
+    // values in published*, exactly what publishBg does — and the
+    // parent's STANDING packet (same bgSeq, already seen) must be
+    // re-adopted over it, restoring the parent's values.
+    sy.publishedStyle = 0; sy.publishedPct = 100; sy.publishedEffect = 0;
+    CHECK(bgAdoption(sh, 2, sy, now, out));
+    CHECK(out.style == 3 && out.opacityPct == 45 && out.effect == 4);
+    CHECK(!bgIsLocalChange(sy, 3, 45, 4)); // restored values are the published ones: no echo
+    CHECK(!bgAdoption(sh, 2, sy, now, out)); // and it settles again — no adoption loop
+    // PARENT TURNOVER RE-ADOPTS: the parent unlinks; the follower
+    // is now the earliest-linked remaining member and adopts from
+    // nobody; when a NEW parent (appId 1, earlier linkSeq) stands,
+    // its packet is adopted.
+    par.linked = 0;
+    CHECK(!bgAdoption(sh, 2, sy, now, out)); // self is parent now
+    auto& np = sh.slots[1]; np.appId = 1; np.linked = 1; np.heartbeatMs = now; np.linkSeq = 1;
+    np.bgSeq = 9; np.bgStyle = 2; np.bgOpacityPct = 55; np.bgEffect = 1;
+    CHECK(bgParentApp(sh, 2, 2, now) == 1);
+    CHECK(bgAdoption(sh, 2, sy, now, out));
+    CHECK(out.style == 2 && out.opacityPct == 55 && out.effect == 1 && sy.adoptedFrom == 1);
+}
+{
+    using namespace sessionbar;
+    // CellPulse: silence is exactly zero (the unlinked/static cell
+    // picture), and zero dt is a no-op.
+    CellPulse cp;
+    CHECK(cp.glow() == 0.f && cp.dotScale() == 1.f);
+    const float loud[3] = { 0.9f, 0.8f, 0.7f };
+    cp.update(0.f, loud, 0.9f);
+    CHECK(cp.glow() == 0.f);
+    // A sustained loud feed rises SMOOTHLY: bounded per-step change
+    // at the 30 Hz fx rate, never a one-frame jump to full.
+    float prev = 0.f, maxStep = 0.f;
+    for (int i = 0; i < 60; ++i) {
+        cp.update(1.f / 30.f, loud, 0.9f);
+        const float g = cp.glow();
+        if (i > 0 && g - prev > maxStep) maxStep = g - prev; // i==0 is the onset slam itself (MeterBar's beat glow slams too)
+        prev = g;
+    }
+    CHECK(maxStep < 0.20f);
+    CHECK(cp.glow() > 0.5f);          // sustained energy does register
+    CHECK(cp.glow() <= 1.f && cp.dotScale() > 1.f && cp.dotScale() <= 1.36f);
+    // FLICKER PIN (item 2): raw bands alternating 0/1 every tick —
+    // the raw link-packet shape that flickered — move the SMOOTHED
+    // glow by only a small step per tick once settled.
+    CellPulse fl;
+    float last = 0.f; bool settled = true;
+    for (int i = 0; i < 240; ++i) {
+        const float b[3] = { (i % 2) ? 1.f : 0.f, (i % 2) ? 0.8f : 0.f, 0.f };
+        fl.update(1.f / 30.f, b, 0.4f);
+        if (i >= 120 && std::abs(fl.glow() - last) > 0.10f) settled = false;
+        last = fl.glow();
+    }
+    CHECK(settled);
+    // Onset pump: a level jump fires the pump, and in silence it
+    // decays away (monotone after the slam) back to no glow.
+    CellPulse on;
+    const float hit[3] = { 1.f, 1.f, 1.f };
+    on.update(1.f / 30.f, hit, 1.f);
+    CHECK(on.pump() > 0.7f); // slammed to 1 by the onset, already one decay step in
+    const float zero[3] = { 0.f, 0.f, 0.f };
+    float pg = on.glow();
+    for (int i = 0; i < 90; ++i) { on.update(1.f / 30.f, zero, 0.f); }
+    CHECK(on.glow() < pg && on.glow() < 0.05f);
 }
 
 

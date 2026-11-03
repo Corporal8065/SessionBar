@@ -135,29 +135,49 @@ public:
         g.fillRoundedRectangle(b, 8.f);
         g.setColour(th.border);
         g.drawRoundedRectangle(b, 8.f, 1.f);
+        // v0.4.16 (items 1/2 — MeterBar's cell treatment, ported
+        // from its ModuleViews beat pulse): the linked-audio
+        // envelope spends itself on GLOW only — a whisper of accent
+        // fill plus a brighter border while the envelope is up.
+        // The cell's rect, and everything in it, NEVER moves: the
+        // old literal positional bumping is gone. The envelope
+        // itself is core CellPulse (attack/release smoothed — the
+        // raw link packet is never sampled by this paint, which is
+        // what made linked cells flicker). Zero when unlinked.
+        const float glow = owner->cellGlow();
+        if (glow > 0.01f) {
+            g.setColour(th.accent.withAlpha(0.055f * glow));
+            g.fillRoundedRectangle(b.reduced(1.f), 8.f);
+            g.setColour(th.accent.brighter(0.35f).withAlpha(0.5f * glow));
+            g.drawRoundedRectangle(b.reduced(0.5f), 8.f, 1.4f);
+        }
         auto r = b.reduced(10.f, 6.f);
         // top row: city (left) + the session's own local time (right)
+        // v0.4.16 (item 6): cell text draws through the corrected
+        // text pop (colour copy bottom-right behind, white in front).
         auto top = r.removeFromTop(18.f);
-        g.setColour(th.text); g.setFont(juce::Font(13.5f, juce::Font::bold));
-        g.drawText(def ? juce::String(def->city) : juce::String("--"), top, juce::Justification::centredLeft);
-        g.setColour(th.dim); g.setFont(juce::Font(13.f));
-        g.drawText(has ? juce::String(sessionbar::formatLocalTime(status, owner->state.use24h)) : juce::String("--:--"),
-                   top, juce::Justification::centredRight);
+        g.setFont(juce::Font(13.5f, juce::Font::bold));
+        textpop::draw(g, def ? juce::String(def->city) : juce::String("--"), top, juce::Justification::centredLeft, th.text);
+        g.setFont(juce::Font(13.f));
+        textpop::draw(g, has ? juce::String(sessionbar::formatLocalTime(status, owner->state.use24h)) : juce::String("--:--"),
+                      top, juce::Justification::centredRight, th.dim);
         // middle row: state dot + state word, colour-coded
         auto mid = r.removeFromTop(24.f);
         // v0.3.0 item 6: the state colour comes from the selected
         // session-state colour scheme (core SessionColors).
         const juce::Colour sc = !has ? th.dim : owner->stateColour(status.state);
-        auto dot = mid.removeFromLeft(16.f).toFloat().withSizeKeepingCentre(9.f, 9.f);
+        // v0.4.16: the dot is the one thing that SCALES with the
+        // envelope (MeterBar's bubbles swell; positions never jump).
+        auto dot = mid.removeFromLeft(16.f).toFloat().withSizeKeepingCentre(9.f * owner->cellDotScale(), 9.f * owner->cellDotScale());
         g.setColour(sc.withAlpha(0.25f)); g.fillEllipse(dot.expanded(1.5f));
         g.setColour(sc); g.fillEllipse(dot);
         g.setFont(juce::Font(16.5f, juce::Font::bold));
-        g.drawText(has ? juce::String(sessionbar::stateName(status.state)) : juce::String("..."),
-                   mid, juce::Justification::centredLeft);
+        textpop::draw(g, has ? juce::String(sessionbar::stateName(status.state)) : juce::String("..."),
+                      mid, juce::Justification::centredLeft, sc);
         // bottom row: the countdown to the next state change
-        g.setColour(th.dim); g.setFont(12.f);
-        g.drawText(has ? juce::String(sessionbar::countdownText(status)) : juce::String(""),
-                   r, juce::Justification::centredLeft);
+        g.setFont(12.f);
+        textpop::draw(g, has ? juce::String(sessionbar::countdownText(status)) : juce::String(""),
+                      r, juce::Justification::centredLeft, th.dim);
     }
 };
 
@@ -276,6 +296,18 @@ public:
             rs->onClick = [this]{ owner->doRestore(); rebuildSoon(); };
             y_ += 30;
         }
+        heading("Reset");
+        {
+            // v0.4.16 (item 5): a true SETTINGS reset — every
+            // setting back to the factory SessionBarState defaults,
+            // applied live (the Menu's "New Preset (defaults)" is a
+            // preset action, and no Settings-side reset existed).
+            auto* rs = add(new juce::TextButton("Reset settings to defaults"));
+            rs->setBounds(24, y_, 240, 24);
+            rs->onClick = [this]{ owner->resetSettingsToDefaults(); rebuildSoon(); };
+            y_ += 32;
+        }
+        note("Restores every setting above to its factory default and applies it immediately. Preset files on disk are not touched.");
         heading("About");
         {
             auto* cu = add(new juce::TextButton("Check for updates"));
@@ -416,6 +448,12 @@ MainComponent::MainComponent() {
     // v0.4.9: the glyph buttons wear the emoji typeface (see
     // IconButtonLookAndFeel) — everything else keeps the stock font.
     for (auto* b : { &linkBtn_, &settingsBtn_, &burgerBtn_ }) b->setLookAndFeel(&iconLnf_);
+    // v0.4.16 (item 6): the TEXT pop for the toolbar's text — the
+    // "Update!" button and the wordmark/version labels. The glyph
+    // buttons above keep iconLnf_ and stay single-draw.
+    updateBtn_.setLookAndFeel(&popButtonLnf_);
+    wordmark_.setLookAndFeel(&popLabelLnf_);
+    versionLabel_.setLookAndFeel(&popLabelLnf_);
     updateBtn_.setVisible(false);
     updateBtn_.onClick = [this]{ uiClick(ClickSounds::Which::Pop);
         if (pendingRelease_.ok && pendingRelease_.newer) showUpdatePanel(pendingRelease_); };
@@ -772,6 +810,20 @@ void MainComponent::applyChrome() {
     updateBtn_.setColour(juce::TextButton::textColourOnId, juce::Colours::white);
     wordmark_.setColour(juce::Label::textColourId, theme_.accent);
     versionLabel_.setColour(juce::Label::textColourId, theme_.dim);
+}
+
+// v0.4.16 (item 5): factory reset of ALL settings, applied live
+// through the same settingsChanged path every other Settings edit
+// uses (theme, cells, pin, reserve, link toggle sync, persist).
+// The live window rect is re-stamped by settingsChanged's
+// saveSettings, so the bar does not jump to the default position —
+// what resets is the settings, not the window's current bounds
+// (the Menu's New-Preset behaviour, for the same reason).
+void MainComponent::resetSettingsToDefaults() {
+    state = sessionbar::SessionBarState{};
+    lastPresetName_.clear();
+    settingsChanged();
+    if (settingsWin_ && settingsWin_->isVisible()) settingsWin_->content.build();
 }
 
 void MainComponent::cycleDockEdgeFromSettings() {
@@ -1269,7 +1321,10 @@ sessionbar::GlowSettings MainComponent::glowSettings() const {
     return gs;
 }
 void MainComponent::syncFxPump() {
-    fxPump_.setRunning(state.bgEffect != 0 || (mascot_ && mascot_->isVisible()));
+    // v0.4.16: the pump also runs while LINKED — the cell pulse
+    // (items 1/2) is driven from MeterBar's audio packet even when
+    // no background effect is selected.
+    fxPump_.setRunning(state.bgEffect != 0 || state.linkEnabled || (mascot_ && mascot_->isVisible()));
 }
 
 // v0.4.5: "Link background" flipped in Settings. Turning it ON
@@ -1285,10 +1340,24 @@ void MainComponent::stepFx() {
     float bands[3] = { 0.f, 0.f, 0.f }, level = 0.f;
     float pkt[5];
     float balance = 0.f; // v0.4.13: MeterBar's stereo balance steers the distributed emitters
-    if (state.linkEnabled && linkClient_.peerAudio(sessionbar::kLinkAppMeter, pkt)) {
+    const bool havePeerAudio = state.linkEnabled && linkClient_.peerAudio(sessionbar::kLinkAppMeter, pkt);
+    if (havePeerAudio) {
         bands[0] = pkt[0]; bands[1] = pkt[1]; bands[2] = pkt[2]; level = pkt[3]; balance = pkt[4];
     } else {
         sessionbar::ambientBands(fxClock_, bands, level);
+    }
+    // v0.4.16 (items 1/2): the CELLS' envelope — fed ONLY from the
+    // real linked packet (ambient bands never move the cells, so
+    // unlinked rendering is untouched), and always through core
+    // CellPulse's attack/release smoothing: the raw packet at link
+    // tick rate was the linked-cell flicker. Cells repaint while
+    // the envelope is up, and once more as it dies to zero.
+    {
+        const float silent[3] = { 0.f, 0.f, 0.f };
+        cellPulse_.update(dt, havePeerAudio ? bands : silent, havePeerAudio ? level : 0.f);
+        const bool lit = cellPulse_.glow() > 0.01f;
+        if (lit || cellPulseWasLit_) for (auto& c : cells_) c->repaint();
+        cellPulseWasLit_ = lit;
     }
     // v0.4.7: advance whichever visualizer style is selected —
     // the particle engine (Bubbles) or the ribbon model (Lines).
@@ -1320,7 +1389,12 @@ void MainComponent::drawVisualizerBackground(juce::Graphics& g) {
     // style was dropped entirely in effect mode and the adopted
     // opacity could never show through. Unlinked/alone the base is
     // the historical opaque black, byte-for-byte the old render.
-    if (group != own)
+    // v0.4.16 (items 3/4): the grouped test is linkGrouped() (Link
+    // on + a live linked peer), NOT group != own — a linked peer
+    // whose rect is contained in this bar's (union == own) used to
+    // fall back to the opaque black base despite the adopted
+    // style/opacity being in force.
+    if (linkGrouped())
         fillStyledBackground(g, bounds.toFloat(), state.backgroundStyle, theme_,
                              juce::jlimit(0.15f, 1.0f, state.backgroundOpacity));
     else
@@ -1442,7 +1516,8 @@ void MainComponent::drawGlowBackground(juce::Graphics& g) {
     // v0.4.14: LINKED, the base under the glow is the shared styled
     // background at the shared opacity (see drawVisualizerBackground);
     // unlinked/alone it stays the historical opaque black.
-    if (group != own)
+    // v0.4.16: grouped = linkGrouped(), not group != own (see there).
+    if (linkGrouped())
         fillStyledBackground(g, bounds.toFloat(), state.backgroundStyle, theme_,
                              juce::jlimit(0.15f, 1.0f, state.backgroundOpacity));
     else

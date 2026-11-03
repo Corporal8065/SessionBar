@@ -330,7 +330,22 @@ inline bool bgAdoption(const LinkShared& sh, int selfApp, BgSyncState& s, long l
     if (parentSlot < 0) return false;
     const LinkSlot& p = sh.slots[parentSlot];
     if (p.bgSeq == 0) return false;
-    if (p.bgSeq == s.seenSeq[parentSlot] && s.adoptedFrom == parentApp && s.adoptedLinkSeq == p.linkSeq) return false;
+    // v0.4.16 (defect 6 — FOLLOWER DIVERGENCE): the seq/identity
+    // gate alone left a follower's LOCAL change in force for the
+    // rest of the link — the follower's publish recorded its own
+    // values in published*, the parent's packet never moved again,
+    // and the gate below read "already seen" forever, so the
+    // parent stopped governing the moment a follower touched its
+    // own background (Jackson 2026-11-02 19:38: style/opacity "does
+    // not line up when linking"). The parent governs CONTINUOUSLY:
+    // when this app's current (published/adopted) values differ
+    // from the parent's standing packet, the packet is re-adopted
+    // even though its bgSeq was already consumed. After adoption
+    // published* == the packet (the echo rule), so this cannot
+    // loop, and a follower whose values already match the parent's
+    // is untouched.
+    if (p.bgSeq == s.seenSeq[parentSlot] && s.adoptedFrom == parentApp && s.adoptedLinkSeq == p.linkSeq
+        && s.publishedStyle == p.bgStyle && s.publishedPct == p.bgOpacityPct && s.publishedEffect == p.bgEffect) return false;
     s.seenSeq[parentSlot] = p.bgSeq;
     s.adoptedFrom = parentApp;
     s.adoptedLinkSeq = p.linkSeq;

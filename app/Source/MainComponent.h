@@ -7,6 +7,8 @@
 #include <sessionbar/SessionColors.hpp>
 #include <sessionbar/Visualizer.hpp>
 #include <sessionbar/Glow.hpp>
+#include <sessionbar/CellPulse.hpp> // v0.4.16: the MeterBar-mechanic cell envelope (items 1/2)
+#include "TextPop.h" // v0.4.16: corrected-geometry text pop (item 6)
 #include <sessionbar/Mascot.hpp>
 #include <sessionbar/Glyphs.hpp> // v0.4.10: icon glyphs as explicit UTF-8 bytes
 #include "SessionBarVersion.h" // v0.4.3: generated — single-source version
@@ -33,6 +35,58 @@ class CellSplitter;
 // exists at runtime the default sans is used, which is the pre-fix
 // behaviour. Applied per button, so every other button (Update!
 // included) keeps the existing font.
+// v0.4.16 (item 6): button text with the TEXT POP (TextPop.h,
+// corrected geometry) — MeterBar v0.26.1's PoppedButtonLookAndFeel
+// mirrored. Applied ONLY to the text "Update!" button: the glyph
+// buttons keep IconButtonLookAndFeel below and stay single-draw
+// (emoji/icon glyphs are NOT doubled, Jackson's word).
+class PoppedButtonLookAndFeel : public juce::LookAndFeel_V4 {
+public:
+    void drawButtonText(juce::Graphics& g, juce::TextButton& button,
+                        bool /*shouldDrawButtonAsHighlighted*/, bool /*shouldDrawButtonAsDown*/) override {
+        juce::Font font(getTextButtonFont(button, button.getHeight()));
+        g.setFont(font);
+        const auto colour = button.findColour(button.getToggleState() ? juce::TextButton::textColourOnId
+                                                                      : juce::TextButton::textColourOffId)
+                              .withMultipliedAlpha(button.isEnabled() ? 1.0f : 0.5f);
+        const int yIndent = juce::jmin(4, button.proportionOfHeight(0.3f));
+        const int cornerSize = juce::jmin(button.getHeight(), button.getWidth()) / 2;
+        const int fontHeight = juce::roundToInt(font.getHeight() * 0.6f);
+        const int leftIndent = juce::jmin(fontHeight, 2 + cornerSize / (button.isConnectedOnLeft() ? 4 : 2));
+        const int rightIndent = juce::jmin(fontHeight, 2 + cornerSize / (button.isConnectedOnRight() ? 4 : 2));
+        const int textWidth = button.getWidth() - leftIndent - rightIndent;
+        if (textWidth > 0)
+            textpop::drawFitted(g, button.getButtonText(),
+                                juce::Rectangle<int>(leftIndent, yIndent, textWidth, button.getHeight() - yIndent * 2),
+                                juce::Justification::centred, 2, 1.0f, colour);
+    }
+};
+
+// v0.4.16 (item 6): the toolbar labels (wordmark / version) with
+// the TEXT POP — mirrors LookAndFeel_V2::drawLabel, adding the
+// corrected pop pass before the fitted text (MeterBar v0.26.1's
+// PoppedLabelLookAndFeel mirrored).
+class PoppedLabelLookAndFeel : public juce::LookAndFeel_V4 {
+public:
+    void drawLabel(juce::Graphics& g, juce::Label& label) override {
+        g.fillAll(label.findColour(juce::Label::backgroundColourId));
+        if (!label.isBeingEdited()) {
+            const auto alpha = label.isEnabled() ? 1.0f : 0.5f;
+            const juce::Font font(getLabelFont(label));
+            g.setFont(font);
+            auto textArea = getLabelBorderSize(label).subtractedFrom(label.getLocalBounds());
+            textpop::drawFitted(g, label.getText(), textArea, label.getJustificationType(),
+                                juce::jmax(1, (int)((float)textArea.getHeight() / font.getHeight())),
+                                label.getMinimumHorizontalScale(),
+                                label.findColour(juce::Label::textColourId).withMultipliedAlpha(alpha));
+            g.setColour(label.findColour(juce::Label::outlineColourId).withMultipliedAlpha(alpha));
+        } else if (label.isEnabled()) {
+            g.setColour(label.findColour(juce::Label::outlineColourId));
+        }
+        g.drawRect(label.getLocalBounds());
+    }
+};
+
 class IconButtonLookAndFeel : public juce::LookAndFeel_V4 {
 public:
     juce::Font getTextButtonFont(juce::TextButton&, int buttonHeight) override {
@@ -93,6 +147,7 @@ public:
     void cellDragMove(juce::Component* cell, const juce::MouseEvent& e);
     bool cellDragEnd(juce::Component* cell, const juce::MouseEvent& e);
     void settingsChanged(); // apply + persist (theme, cells, pin, reserve)
+    void resetSettingsToDefaults(); // v0.4.16 (item 5): Settings "Reset settings to defaults" — factory SessionBarState, applied live
     void onBgLinkToggled(); // v0.4.5: Settings "Link background" flipped — re-stamp for peers when it turns on
     void notifyWindowGeometryChanged(); // MainWindow moved/resized feed (reserve machine events)
     void snapToDockEdge();
@@ -103,6 +158,13 @@ public:
     void checkForUpdates();             // v0.3.0 item 1
     juce::Colour stateColour(sessionbar::SessionState s) const; // v0.3.0 item 6
     bool fxActive() const { return state.bgEffect != 0; }
+    // v0.4.16 (items 1/2): the cells' MeterBar-mechanic glow
+    // envelope 0..1 — driven ONLY from MeterBar's linked audio
+    // packet, through core CellPulse's attack/release smoothing
+    // (never the raw packet). Zero when unlinked, so unlinked
+    // cells render exactly as before.
+    float cellGlow() const { return cellPulse_.glow(); }
+    float cellDotScale() const { return cellPulse_.dotScale(); }
     // v0.4.14: this bar is link-grouped (Link on + at least one live
     // linked peer) — the state in which the shared background rules
     // (parent opacity under the effects, opacity-scaled cell panels)
@@ -162,6 +224,8 @@ private:
     ClickSounds clicks_;
 
     juce::Label wordmark_, versionLabel_;
+    PoppedLabelLookAndFeel popLabelLnf_;   // v0.4.16: wordmark/version text pop (declared before the labels' users below)
+    PoppedButtonLookAndFeel popButtonLnf_; // v0.4.16: the text "Update!" button only — glyph buttons keep iconLnf_
     IconButtonLookAndFeel iconLnf_; // v0.4.9: declared before the buttons so it outlives them
     // v0.4.8: icon-only cluster (see the class comment). The
     // Update! indicator stays text on purpose — it is temporary
@@ -197,6 +261,8 @@ private:
     sessionbar::VisualizerLines vizLines_; // v0.4.7: the Lines style's ribbon model (pure core)
     sessionbar::VisualizerField vizField_; // v0.4.13: the Field style's vortex model (pure core)
     sessionbar::GlowField glow_;
+    sessionbar::CellPulse cellPulse_; // v0.4.16: linked-audio cell envelope (items 1/2)
+    bool cellPulseWasLit_ = false;    // v0.4.16: repaint cells while the envelope is up (and once as it dies)
     sessionbar::MascotAnim mascotAnim_;
     juce::Image vizCache_, vizBlur_, glowCache_;
     juce::Image vizBlurSrc_;                 // v0.4.12: quarter-res downsample the blur convolves (lag fix — MeterBar v0.23.1 twin)
