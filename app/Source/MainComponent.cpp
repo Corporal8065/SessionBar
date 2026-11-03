@@ -154,10 +154,15 @@ public:
         auto r = b.reduced(10.f, 6.f);
         // top row: city (left) + the session's own local time (right)
         // v0.4.16 (item 6): cell text draws through the corrected
-        // text pop (colour copy bottom-right behind, white in front).
+        // text pop (back copy bottom-right behind, white in front).
+        // v0.4.18 (Jackson, 2026-11-03): the CITY name draws SINGLE
+        // — one draw, theme text colour, no back copy at all. The
+        // local time beside it keeps the pop, whose back copy is
+        // now textpop's dark dark grey.
         auto top = r.removeFromTop(18.f);
         g.setFont(juce::Font(13.5f, juce::Font::bold));
-        textpop::draw(g, def ? juce::String(def->city) : juce::String("--"), top, juce::Justification::centredLeft, th.text);
+        g.setColour(th.text);
+        g.drawText(def ? juce::String(def->city) : juce::String("--"), top, juce::Justification::centredLeft);
         g.setFont(juce::Font(13.f));
         textpop::draw(g, has ? juce::String(sessionbar::formatLocalTime(status, owner->state.use24h)) : juce::String("--:--"),
                       top, juce::Justification::centredRight, th.dim);
@@ -172,8 +177,12 @@ public:
         g.setColour(sc.withAlpha(0.25f)); g.fillEllipse(dot.expanded(1.5f));
         g.setColour(sc); g.fillEllipse(dot);
         g.setFont(juce::Font(16.5f, juce::Font::bold));
-        textpop::draw(g, has ? juce::String(sessionbar::stateName(status.state)) : juce::String("..."),
-                      mid, juce::Justification::centredLeft, sc);
+        // v0.4.18: the STATE word (Open / Closed / …) also draws
+        // SINGLE — one draw in its state colour sc, no back copy.
+        // The state dot above and its glow are unchanged.
+        g.setColour(sc);
+        g.drawText(has ? juce::String(sessionbar::stateName(status.state)) : juce::String("..."),
+                   mid, juce::Justification::centredLeft);
         // bottom row: the countdown to the next state change
         g.setFont(12.f);
         textpop::draw(g, has ? juce::String(sessionbar::countdownText(status)) : juce::String(""),
@@ -865,6 +874,14 @@ void MainComponent::snapToDockEdge() {
         const int nh = juce::jlimit(92, 300, b.getWidth());
         b.setSize(nw, nh);
     }
+    // v0.4.18 (Jackson, 2026-11-03 — reposition full-width rule):
+    // for a Top/Bottom dock the bar also stretches to the FULL
+    // WIDTH of the display it is on — x = that display's left
+    // edge, width = its total width, height unchanged. "should
+    // change the width of it to also match the screen not just
+    // move to the top". Left/Right keep the axis-swap behaviour
+    // above and are untouched here.
+    if (!side) { b.setX(area.getX()); b.setSize(area.getWidth(), b.getHeight()); }
     switch (state.dockEdge) {
         case sessionbar::DockEdge::Top:    b.setY(area.getY()); break;
         case sessionbar::DockEdge::Bottom: b.setY(area.getBottom() - b.getHeight()); break;

@@ -6,10 +6,13 @@
 // piece of text SessionBar draws over its transparent / visual
 // bar background gets the doubled-letter treatment from his
 // reference picture, in the order he specified:
-//   1. the text's OWN COLOUR copy is drawn FIRST, at the rect
-//      translated (+off, +off) — bottom-right, BEHIND;
+//   1. a DARK DARK GREY copy is drawn FIRST, at the rect
+//      translated (+off, +off) — bottom-right, BEHIND
+//      (v0.4.18: the back copy is kBackGrey for every popped
+//      text — see the rule below; through v0.4.17 it was the
+//      text's own colour, then the v0.4.17 white rule);
 //   2. a WHITE copy is drawn at the untranslated rect — top-left
-//      relative to the colour copy, IN FRONT.
+//      relative to the back copy, IN FRONT.
 // The offset scales with the font (~20% of the glyph height,
 // clamped 2-7 px) so it always clears the glyph strokes.
 // Mirrors MeterBar's app/Source/TextPop.h in structure and
@@ -28,24 +31,20 @@ inline float offsetFor(float fontHeight) {
     return juce::jlimit(2.f, 7.f, fontHeight * 0.20f);
 }
 
-// WHITE RULE (v0.4.17 — Jackson, 2026-11-02 21:19 PT): "for all
-// the text if the front text is white make the back white."
-// When a label's own colour is white or near-white, the offset
-// BACK copy is drawn PURE WHITE — white text never gets a
-// tinted or contrasting backing. (The themes' text colours are
-// tinted whites, not pure white — without this rule the back
-// copy showed that tint behind the white face.) Coloured
-// labels keep their own colour as the back copy; the corrected
-// geometry is otherwise unchanged. Alpha always follows the
-// caller's colour.
-inline bool isWhiteText(juce::Colour c) {
-    const int r = (int)c.getRed(), g = (int)c.getGreen(), b = (int)c.getBlue();
-    const int lo = juce::jmin(r, juce::jmin(g, b)), hi = juce::jmax(r, juce::jmax(g, b));
-    return lo >= 0xE0 && (hi - lo) <= 0x30;
-}
+// DARK DARK GREY BACK RULE (v0.4.18 — Jackson, 2026-11-03
+// ~11:01 PT): "for hte other text make the text that is behind
+// the white front text to be a dark dark grey." Every popped
+// text's offset BACK copy is this one dark dark grey — NOT the
+// v0.4.17 white rule (white back for white text), NOT the
+// label's own colour (the v0.4.16 behaviour), and NOT pure
+// black (black is MeterBar's separate meter-readout rule; do
+// not merge them). The city name and the Open/Closed state
+// word no longer go through here at all — they draw single
+// (see SessionCell::paint). Alpha always follows the caller's
+// colour, so a dim readout gets a proportionally dim back copy.
+inline constexpr juce::uint8 kBackGrey = 26; // RGB (26, 26, 26)
 inline juce::Colour backColourFor(juce::Colour colour) {
-    return isWhiteText(colour) ? juce::Colours::white.withAlpha(colour.getFloatAlpha())
-                               : colour;
+    return juce::Colour(kBackGrey, kBackGrey, kBackGrey).withAlpha(colour.getFloatAlpha());
 }
 
 // drawText with the pop. The caller sets the font first, exactly
@@ -55,7 +54,7 @@ inline juce::Colour backColourFor(juce::Colour colour) {
 inline void draw(juce::Graphics& g, const juce::String& text, juce::Rectangle<float> r,
                  juce::Justification j, juce::Colour colour) {
     const float off = offsetFor(g.getCurrentFont().getHeight());
-    g.setColour(backColourFor(colour)); // back colour (white rule), bottom-right, behind
+    g.setColour(backColourFor(colour)); // back colour (dark dark grey), bottom-right, behind
     g.drawText(text, r.translated(off, off), j);
     g.setColour(juce::Colours::white.withAlpha(colour.getFloatAlpha())); // white, top-left, in front
     g.drawText(text, r, j);
