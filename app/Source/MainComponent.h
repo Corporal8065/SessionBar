@@ -155,6 +155,7 @@ public:
     void doArrange();
     void doRestore();
     void doStackAll();                  // v0.3.0 item 12
+    void doLinkAll(int edgeOrdinal);    // v0.4.19 BLK7 §6: Link All request (0 Top / 1 Bottom)
     void checkForUpdates();             // v0.3.0 item 1
     juce::Colour stateColour(sessionbar::SessionState s) const; // v0.3.0 item 6
     bool fxActive() const { return state.bgEffect != 0; }
@@ -165,6 +166,14 @@ public:
     // cells render exactly as before.
     float cellGlow() const { return cellPulse_.glow(); }
     float cellDotScale() const { return cellPulse_.dotScale(); }
+    // v0.4.19 BLK7 (§7): the fired pulse colour (0xRRGGBB from
+    // MeterBar's stamp) — spent by the cell paint while the pump
+    // is live; the theme accent is the fallback otherwise.
+    bool cellPulseColourLive() const { return cellPulse_.firedColourLive(); }
+    juce::Colour cellPulseColour() const {
+        const int c = cellPulse_.firedColour();
+        return juce::Colour((juce::uint8)((c >> 16) & 0xFF), (juce::uint8)((c >> 8) & 0xFF), (juce::uint8)(c & 0xFF));
+    }
     // v0.4.14: this bar is link-grouped (Link on + at least one live
     // linked peer) — the state in which the shared background rules
     // (parent opacity under the effects, opacity-scaled cell panels)
@@ -263,6 +272,25 @@ private:
     sessionbar::GlowField glow_;
     sessionbar::CellPulse cellPulse_; // v0.4.16: linked-audio cell envelope (items 1/2)
     bool cellPulseWasLit_ = false;    // v0.4.16: repaint cells while the envelope is up (and once as it dies)
+    unsigned seenPulseSeq_ = 0;       // v0.4.19 BLK7 §7: last MeterBar pulse seq consumed (edge-detect)
+    // v0.4.19 BLK7 §6d: pre-link appearance snapshot (in-memory only —
+    // a follower that crashes mid-link keeps the adopted values, as
+    // before) + the Link All geometry snapshot. Taken on the link
+    // OFF->ON edge before the first adoption can land; restored and
+    // cleared on the ON->OFF edge.
+    struct AppearanceSnapshot {
+        sessionbar::BackgroundStyle style = sessionbar::BackgroundStyle::MidnightKids;
+        float opacity = 1.f;
+        int bgEffect = 0, vizStyle = 0, scheme = 0;
+        std::string themeName;
+        float vizHue = 0.f, vizSat = 0.f, vizSpread = 0.f, vizCycle = 0.f;
+    };
+    AppearanceSnapshot appearanceSnapshot_;
+    bool appearanceSnapshotHeld_ = false;
+    juce::Rectangle<int> linkAllGeomSnapshot_;
+    bool linkAllGeomSnapshotHeld_ = false;
+    void snapshotAppearance();
+    void restoreAppearanceOnUnlink();
     sessionbar::MascotAnim mascotAnim_;
     juce::Image vizCache_, vizBlur_, glowCache_;
     juce::Image vizBlurSrc_;                 // v0.4.12: quarter-res downsample the blur convolves (lag fix — MeterBar v0.23.1 twin)

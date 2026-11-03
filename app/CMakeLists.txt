@@ -29,5 +29,6 @@ target_link_libraries(SessionBar PRIVATE
 if(WIN32)
   # shell32 = SHAppBarMessage, comctl32 = SetWindowSubclass,
   # dwmapi = DWMWA_CLOAKED — all for ScreenSpace (AppBar/arrange).
-  target_link_libraries(SessionBar PRIVATE shell32 comctl32 dwmapi)
+  # dbghelp = MiniDumpWriteDump for the v0.4.19 crash record (CrashHandler.h).
+  target_link_libraries(SessionBar PRIVATE shell32 comctl32 dwmapi dbghelp)
 endif()

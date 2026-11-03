@@ -53,13 +53,34 @@ public:
         if (pump_ < 0.f) pump_ = 0.f;
     }
 
+    // BLK7 (DESIGN §7): a discrete pulse event from a linked peer
+    // (MeterBar's beat stamp). The pump slams to the stamped
+    // strength — floored at 0.35 so quiet hits still read — and the
+    // fired colour is stored for the paint to spend while the pump
+    // is live. Continuous audio-driven behaviour (update/glow) is
+    // unchanged when no pulses arrive: firedColourLive() stays
+    // false and glow() keeps its historical shape.
+    void fire(int colourRgb, float strength) {
+        float s = strength < 0.f ? 0.f : strength > 1.f ? 1.f : strength;
+        if (s < 0.35f) s = 0.35f;
+        if (s > pump_) pump_ = s;
+        firedColour_ = colourRgb;
+        hasFired_ = true;
+    }
+    int firedColour() const { return firedColour_; } // 0xRRGGBB
+    bool firedColourLive() const { return hasFired_ && pump_ > 0.01f; }
+
     // The cell glow 0..1: smoothed band energy carrying the onset
     // pump (GlowField's pumpGain shape: the pump AMPLIFIES the
     // smoothed bands, it is not a separate light source — silence
     // with a stale pump still reads as no glow once the bands die).
+    // BLK7: a FIRED pulse is a discrete light source of its own —
+    // while its colour is live the glow carries at least the pump,
+    // so a pulse reads even between audio packets.
     float glow() const {
         const float m = std::max({ smooth_[0], smooth_[1], smooth_[2] });
-        const float g = m * (0.65f + 0.35f * pump_) + 0.20f * pump_ * m;
+        float g = m * (0.65f + 0.35f * pump_) + 0.20f * pump_ * m;
+        if (firedColourLive()) g = std::max(g, pump_);
         return g < 0.f ? 0.f : g > 1.f ? 1.f : g;
     }
     // Scale of the one thing that scales: the state dot's radius.
@@ -72,5 +93,7 @@ private:
     float smooth_[3] = { 0.f, 0.f, 0.f };
     float pump_ = 0.f;
     float prevLevel_ = 0.f;
+    int firedColour_ = 0;   // BLK7: 0xRRGGBB of the last fired pulse
+    bool hasFired_ = false; // BLK7: a pulse has been fired at least once
 };
 } // namespace sessionbar

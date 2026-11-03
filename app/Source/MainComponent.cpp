@@ -6,6 +6,8 @@
 #include "SettingsStore.h"
 #include "PresetIO.h"
 #include "SettingsPalette.h"
+#include "CrashHandler.h" // v0.4.19: hard-crash record (family crash-log contract; installed in Main.cpp)
+#include <sessionbar/CrashWatch.hpp> // v0.4.19: crash-record naming/notice logic (core)
 #if JUCE_WINDOWS
  #include <windows.h> // native rects for the AppBar sync (physical pixels)
 #endif
@@ -19,6 +21,17 @@
 // release forever — the same defect as TickerBar's stuck-on-0.4.0
 // (Fiona's report), present here by construction.
 static const juce::String kVersion = juce::String("v") + sessionbar::kVersionString;
+// v0.4.19 (family crash-log contract): SessionBar's Documents folder
+// — crash records (crash-*.txt + .dmp) and presets live here; "Open
+// Log Folder" opens it.
+static juce::File sessionBarDocsDir() {
+    return juce::File::getSpecialLocation(juce::File::userDocumentsDirectory).getChildFile("SessionBar");
+}
+static void openLogFolder() {
+    auto dir = sessionBarDocsDir();
+    dir.createDirectory();
+    dir.startAsProcess();
+}
 // (dockEdgeName went with the Dock button at v0.4.8 — the edge is
 // picked by name in the Reposition submenu now.)
 
@@ -146,9 +159,13 @@ public:
         // what made linked cells flicker). Zero when unlinked.
         const float glow = owner->cellGlow();
         if (glow > 0.01f) {
-            g.setColour(th.accent.withAlpha(0.055f * glow));
+            // v0.4.19 BLK7 (§7): while a fired pulse's pump is live,
+            // the FIRED colour (MeterBar's stamp) is spent; the theme
+            // accent remains the envelope fallback, exactly as before.
+            const juce::Colour glowCol = owner->cellPulseColourLive() ? owner->cellPulseColour() : th.accent;
+            g.setColour(glowCol.withAlpha(0.055f * glow));
             g.fillRoundedRectangle(b.reduced(1.f), 8.f);
-            g.setColour(th.accent.brighter(0.35f).withAlpha(0.5f * glow));
+            g.setColour(glowCol.brighter(0.35f).withAlpha(0.5f * glow));
             g.drawRoundedRectangle(b.reduced(0.5f), 8.f, 1.4f);
         }
         auto r = b.reduced(10.f, 6.f);
@@ -327,6 +344,16 @@ public:
             gh->onClick = []{ juce::URL("https://github.com/Corporal8065/SessionBar").launchInDefaultBrowser(); };
             y_ += 32;
         }
+        {
+            // v0.4.19: Open Log Folder — the crash records
+            // (crash-*.txt + .dmp) live in Documents\SessionBar.
+            // Also in the hamburger menu: a crash-recovery path must
+            // not depend on Settings alone (family crash-log contract).
+            auto* lf = add(new juce::TextButton("Open Log Folder"));
+            lf->setBounds(24, y_, 200, 24);
+            lf->onClick = []{ openLogFolder(); };
+            y_ += 32;
+        }
         note("SessionBar " + kVersion + " — session clocks for New York / London / Tokyo with exchange calendars embedded (2026-2028).");
         status_ = add(new juce::Label({}, owner->screenSpaceStatus()));
         status_->setFont(11.f); status_->setColour(juce::Label::textColourId, settingsPalette::dimText());
@@ -490,8 +517,20 @@ MainComponent::MainComponent() {
             w->setBounds(safe.x, safe.y, safe.w, safe.h);
         }
     };
-    linkClient_.getBg = [this]{ return BarLinkClient::Bg{ (int)state.backgroundStyle, state.backgroundOpacity, state.bgEffect == 1 ? (state.vizStyle == 1 ? 3 : state.vizStyle == 2 ? 4 : 1) : state.bgEffect }; }; // BLK4: the visualizer style rides the effect ordinal (1 Bubbles / 3 Lines); BLK5 (v0.4.13): 4 = Field
+    linkClient_.getBg = [this]{
+        BarLinkClient::Bg b{ (int)state.backgroundStyle, state.backgroundOpacity, state.bgEffect == 1 ? (state.vizStyle == 1 ? 3 : state.vizStyle == 2 ? 4 : 1) : state.bgEffect }; // BLK4: the visualizer style rides the effect ordinal (1 Bubbles / 3 Lines); BLK5 (v0.4.13): 4 = Field
+        // BLK7 (§2/§3): theme = index into the shared themeNameList
+        // (0-5, direct); scheme = stateColorScheme verbatim (0-4);
+        // palette floats verbatim.
+        const auto names = themeNameList();
+        b.theme = names.indexOf(juce::String(state.themeName));
+        b.scheme = state.stateColorScheme;
+        b.palHue = state.vizHue; b.palSat = state.vizSat; b.palSpread = state.vizSpread; b.palCycle = state.vizCycle;
+        return b;
+    };
     linkClient_.applyBg = [this](const BarLinkClient::Bg& bg){
+        // BLK7 §3 follower apply order: background (existing mapping,
+        // preserved exactly), then theme, then scheme, then palette.
         state.backgroundStyle = (sessionbar::BackgroundStyle)juce::jlimit(0, 3, bg.style);
         state.backgroundOpacity = juce::jlimit(0.15f, 1.0f, bg.opacity);
         // BLK4: effect 3 = the visualizer with the Lines style,
@@ -500,11 +539,42 @@ MainComponent::MainComponent() {
         else if (bg.effect == 4) { state.bgEffect = 1; state.vizStyle = 2; } // BLK5: Field
         else if (bg.effect == 1) { state.bgEffect = 1; state.vizStyle = 0; }
         else state.bgEffect = juce::jlimit(0, 2, bg.effect);
+        // Theme: family ordinal 0-5 maps directly onto themeNameList;
+        // -1 (none yet) leaves the local theme alone.
+        if (bg.theme >= 0) {
+            const auto names = themeNameList();
+            if (bg.theme < names.size()) { state.themeName = names[bg.theme].toStdString(); applyTheme(); }
+        }
+        // Scheme: family 0-4 direct; 5-7 are MeterBar-only extensions
+        // with no local counterpart — the field stays unchanged and
+        // the rest of the packet still applies (§2).
+        if (bg.scheme >= 0 && bg.scheme <= 4) state.stateColorScheme = bg.scheme;
+        // Palette: plain field assignment (read live per frame).
+        state.vizHue = bg.palHue; state.vizSat = bg.palSat; state.vizSpread = bg.palSpread; state.vizCycle = bg.palCycle;
         saveSettings(); repaint(); syncFxPump(); // an adopted visualizer/glow must actually start (or stop)
         // v0.2.1: an open Settings window must not keep showing the
         // pre-adoption values — rebuild it so the adopted style /
         // opacity are what its controls display.
         if (settingsWin_ && settingsWin_->isVisible()) settingsWin_->content.build();
+    };
+    // BLK7 §6d: appearance snapshot/restore on the link edges, and
+    // the Link All host hooks.
+    linkClient_.onLinkEdge = [this](bool on){
+        if (on) snapshotAppearance();
+        else restoreAppearanceOnUnlink();
+    };
+    linkClient_.onLinkAllForming = [this]{
+        if (!linkAllGeomSnapshotHeld_) {
+            auto b = currentWindowBounds();
+            if (!b.isEmpty()) { linkAllGeomSnapshot_ = b; linkAllGeomSnapshotHeld_ = true; }
+        }
+    };
+    linkClient_.setLinkEnabled = [this](bool on){
+        if (on && !state.linkEnabled) {
+            state.linkEnabled = true;
+            linkBtn_.setToggleState(true, juce::dontSendNotification);
+            saveSettings(); // persisted exactly as the bar's own toggle persists it
+        }
     };
     linkClient_.getDockedEdge = [this]{
         // the reserve machine is top/bottom-only: side edges report
@@ -536,6 +606,59 @@ MainComponent::MainComponent() {
     setSize(state.windowW, state.windowH);
     // v0.3.0 item 1: silent background update check on launch.
     if (sbupdate::configured()) startUpdateCheck(true);
+    // v0.4.19: NEXT-LAUNCH CRASH NOTICE + WER HARVEST (family
+    // crash-log contract + DESIGN §9 fallback route). The handler
+    // (CrashHandler.h, installed FIRST in Main.cpp initialise)
+    // leaves crash-*.txt + .dmp in Documents\SessionBar; a crash
+    // file without a ".seen" sibling earns exactly one notice.
+    // FALLBACK: deaths that bypass every in-process handler
+    // (heap corruption / fast-fail — the MeterBar v0.28.3 field
+    // finding) still leave a WER dump in %LOCALAPPDATA%\CrashDumps
+    // when LocalDumps is enabled; those are harvested here into
+    // Documents\SessionBar and surfaced through the SAME notice.
+    // Deferred via callAsync so the bar is fully up first. Either
+    // button marks every unseen artefact seen — the notice never
+    // repeats for the same file.
+    juce::MessageManager::callAsync([this]{
+        auto dir = sessionBarDocsDir();
+        dir.createDirectory();
+        // 1) harvest new WER dumps (core decides which: names not
+        //    already in the Documents folder).
+        {
+            juce::File dumpsDir = juce::File(juce::SystemStats::getEnvironmentVariable("LOCALAPPDATA", {}))
+                                      .getChildFile("CrashDumps");
+            if (dumpsDir.isDirectory()) {
+                std::vector<std::string> dumpNames, docsNames;
+                for (auto& f : dumpsDir.findChildFiles(juce::File::findFiles, false))
+                    dumpNames.push_back(f.getFileName().toStdString());
+                for (auto& f : dir.findChildFiles(juce::File::findFiles, false))
+                    docsNames.push_back(f.getFileName().toStdString());
+                for (auto& n : sessionbar::crashDumpsToHarvest(dumpNames, docsNames))
+                    dumpsDir.getChildFile(juce::String(n)).copyFileTo(dir.getChildFile(juce::String(n)));
+            }
+        }
+        // 2) notice over unseen crash texts + unseen harvested dumps.
+        std::vector<std::string> names;
+        for (auto& f : dir.findChildFiles(juce::File::findFiles, false))
+            names.push_back(f.getFileName().toStdString());
+        auto unseenTexts = sessionbar::unseenCrashes(names);
+        auto unseenDumps = sessionbar::unseenHarvestedDumps(names);
+        if (unseenTexts.empty() && unseenDumps.empty()) return;
+        const int count = (int)unseenTexts.size() + (int)unseenDumps.size();
+        auto w = std::make_shared<juce::AlertWindow>("SessionBar crashed",
+            "SessionBar crashed " + juce::String(count) + (count == 1 ? " time" : " times") +
+            " since you last saw this notice.\nThe crash record" + (count == 1 ? " is" : "s are") +
+            " in Documents\\SessionBar (crash-*.txt + .dmp, including any dumps recovered from Windows' CrashDumps).\nOpen the folder to send them to Milo?",
+            juce::AlertWindow::WarningIcon);
+        w->addButton("Open Log Folder", 1); w->addButton("Dismiss", 0);
+        w->enterModalState(true, juce::ModalCallbackFunction::create([unseenTexts, unseenDumps](int r){
+            for (auto& n : unseenTexts)
+                sessionBarDocsDir().getChildFile(juce::String(sessionbar::seenMarkerFor(n))).create();
+            for (auto& n : unseenDumps)
+                sessionBarDocsDir().getChildFile(juce::String(sessionbar::dumpSeenMarkerFor(n))).create();
+            if (r == 1) openLogFolder();
+        }));
+    });
 }
 
 MainComponent::~MainComponent() {
@@ -785,6 +908,20 @@ void MainComponent::refreshCells() {
 
 void MainComponent::timerCallback() {
     pollUpdater();
+    // v0.4.19: keep the crash handler's state snapshot current (1 Hz
+    // is plenty) with the last state the app can honestly know. The
+    // handler itself never formats; if the process dies, the crash
+    // record carries this snapshot.
+    {
+        juce::String snap;
+        snap << "theme: " << state.themeName << "\n";
+        snap << "background: style " << (int)state.backgroundStyle << ", opacity " << state.backgroundOpacity
+             << ", effect " << state.bgEffect << ", viz style " << state.vizStyle << "\n";
+        snap << "colour scheme: " << state.stateColorScheme << "\n";
+        snap << "linked: " << (state.linkEnabled ? "yes" : "no") << ", dock edge " << (int)state.dockEdge
+             << ", reserve " << (state.reserveScreenSpace ? "on" : "off") << "\n";
+        crashhandler::setStateSnapshot(snap.toRawUTF8());
+    }
     refreshCells();
     auto b = currentWindowBounds();
     if (b != lastSavedBounds_ && !b.isEmpty()) { lastSavedBounds_ = b; saveSettings(); }
@@ -994,6 +1131,70 @@ void MainComponent::doStackAll() {
 }
 
 // =====================================================================
+// v0.4.19 BLK7 §6d: appearance snapshot / restore on the link edges.
+// The snapshot is taken by the client's OFF->ON tick hook BEFORE the
+// first adoption can land; restore runs on the ON->OFF edge through
+// the normal settings-changed path, so the settings file returns to
+// the pre-link appearance values. In-memory only (DESIGN §6d).
+// =====================================================================
+void MainComponent::snapshotAppearance() {
+    if (appearanceSnapshotHeld_) return;
+    appearanceSnapshot_.style = state.backgroundStyle;
+    appearanceSnapshot_.opacity = state.backgroundOpacity;
+    appearanceSnapshot_.bgEffect = state.bgEffect;
+    appearanceSnapshot_.vizStyle = state.vizStyle;
+    appearanceSnapshot_.scheme = state.stateColorScheme;
+    appearanceSnapshot_.themeName = state.themeName;
+    appearanceSnapshot_.vizHue = state.vizHue; appearanceSnapshot_.vizSat = state.vizSat;
+    appearanceSnapshot_.vizSpread = state.vizSpread; appearanceSnapshot_.vizCycle = state.vizCycle;
+    appearanceSnapshotHeld_ = true;
+}
+void MainComponent::restoreAppearanceOnUnlink() {
+    if (appearanceSnapshotHeld_) {
+        state.backgroundStyle = appearanceSnapshot_.style;
+        state.backgroundOpacity = appearanceSnapshot_.opacity;
+        state.bgEffect = appearanceSnapshot_.bgEffect;
+        state.vizStyle = appearanceSnapshot_.vizStyle;
+        state.stateColorScheme = appearanceSnapshot_.scheme;
+        state.themeName = appearanceSnapshot_.themeName;
+        state.vizHue = appearanceSnapshot_.vizHue; state.vizSat = appearanceSnapshot_.vizSat;
+        state.vizSpread = appearanceSnapshot_.vizSpread; state.vizCycle = appearanceSnapshot_.vizCycle;
+        appearanceSnapshotHeld_ = false;
+        settingsChanged(); // applies theme + persists the restored values
+        if (settingsWin_ && settingsWin_->isVisible()) settingsWin_->content.build();
+    }
+    if (linkAllGeomSnapshotHeld_) {
+        linkAllGeomSnapshotHeld_ = false;
+        if (auto* w = findParentComponentOfClass<juce::DocumentWindow>())
+            w->setBounds(linkAllGeomSnapshot_);
+        saveSettings();
+    }
+}
+
+// =====================================================================
+// v0.4.19 BLK7 §6: Link All initiation (host side). The AREA is the
+// bounds of the display containing MeterBar's current slot rect
+// when MeterBar's slot is live, else the display this bar is on.
+// The stack's width is that display's full width and its x its left
+// edge (the family's standing full-width dock rule); heights are
+// each bar's own (core planLinkAll).
+// =====================================================================
+void MainComponent::doLinkAll(int edgeOrdinal) {
+    juce::Rectangle<int> area;
+    auto meterRect = linkClient_.peerRect(sessionbar::kLinkAppMeter);
+    if (!meterRect.isEmpty()) {
+        if (auto* d = juce::Desktop::getInstance().getDisplays().getDisplayForRect(meterRect))
+            area = d->totalArea;
+    }
+    if (area.isEmpty()) {
+        if (auto* d = juce::Desktop::getInstance().getDisplays().getDisplayForRect(currentWindowBounds()))
+            area = d->totalArea;
+    }
+    if (area.isEmpty()) return;
+    linkClient_.requestLinkAll(edgeOrdinal, area);
+}
+
+// =====================================================================
 // v0.3.0 item 2: named presets — full configurations, position
 // included; loading one moves the bar (clamped on-screen).
 // =====================================================================
@@ -1012,7 +1213,8 @@ void MainComponent::doStackAll() {
 // ids are unified (the old standalone menus each started at 1).
 enum { mnArrange = 1, mnRestore, mnStack, mnMinimize, mnQuit, mnCheckUpdates,
        mnPresetNew = 10, mnPresetSave, mnPresetSaveAs, mnPresetFolder, mnPresetLoadBase = 1000,
-       mnEdgeTop = 20, mnEdgeBottom, mnEdgeLeft, mnEdgeRight, mnPin, mnReserve, mnDisplayBase = 2000 };
+       mnEdgeTop = 20, mnEdgeBottom, mnEdgeLeft, mnEdgeRight, mnPin, mnReserve, mnDisplayBase = 2000,
+       mnLinkAllTop = 30, mnLinkAllBottom, mnOpenLogFolder }; // v0.4.19: Link All submenu + Open Log Folder (crash-log contract)
 juce::PopupMenu MainComponent::buildRepositionSubMenu() {
     juce::PopupMenu m;
     const int edge = (int)state.dockEdge;
@@ -1058,9 +1260,18 @@ void MainComponent::showMainMenu() {
     m.addItem(mnArrange, "Arrange Windows");
     m.addItem(mnRestore, "Restore Windows");
     m.addItem(mnStack, "Stack Linked Bars");
+    {
+        // v0.4.19 BLK7 §6e (Jackson's pick, option B ONLY): exactly
+        // two Link All items — no auto-edge entry.
+        juce::PopupMenu linkAll;
+        linkAll.addItem(mnLinkAllTop, juce::String::fromUTF8("Link All \xe2\x86\x92 Top"));
+        linkAll.addItem(mnLinkAllBottom, juce::String::fromUTF8("Link All \xe2\x86\x92 Bottom"));
+        m.addSubMenu("Link All", linkAll);
+    }
     m.addSubMenu("Reposition", buildRepositionSubMenu());
     m.addSeparator();
     m.addItem(mnCheckUpdates, "Check for updates");
+    m.addItem(mnOpenLogFolder, "Open Log Folder"); // v0.4.19: crash records (family crash-log contract — reachable outside Settings)
     m.addItem(mnMinimize, "Minimize");
     m.addItem(mnQuit, "Quit");
     m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(burgerBtn_), [this, presetFiles](int r) {
@@ -1080,6 +1291,13 @@ void MainComponent::showMainMenu() {
         else if (r == mnArrange) doArrange();
         else if (r == mnRestore) doRestore();
         else if (r == mnCheckUpdates) checkForUpdates();
+        else if (r == mnOpenLogFolder) openLogFolder();
+        else if (r == mnLinkAllTop || r == mnLinkAllBottom) {
+            // Deferred like Stack/Reposition: moving windows inside
+            // the menu callback wedges it (family discipline).
+            const int edge = (r == mnLinkAllBottom) ? 1 : 0;
+            juce::MessageManager::callAsync([this, edge]{ doLinkAll(edge); });
+        }
         else if (r == mnMinimize) { if (auto* w = findParentComponentOfClass<juce::DocumentWindow>())
                                         if (auto* peer = w->getPeer()) peer->setMinimised(true); }
         else if (r == mnQuit) juce::JUCEApplication::getInstance()->systemRequestedQuit();
@@ -1369,6 +1587,16 @@ void MainComponent::stepFx() {
     // CellPulse's attack/release smoothing: the raw packet at link
     // tick rate was the linked-cell flicker. Cells repaint while
     // the envelope is up, and once more as it dies to zero.
+    // v0.4.19 BLK7 §7: the discrete pulse channel — edge-detect
+    // MeterBar's pulse stamp and fire the cell impulse BEFORE the
+    // envelope update, so this same tick's repaint spends it.
+    if (state.linkEnabled) {
+        unsigned pseq = 0; int pcolour = 0; float pstrength = 0.f;
+        if (linkClient_.peerPulse(sessionbar::kLinkAppMeter, pseq, pcolour, pstrength) && pseq != seenPulseSeq_) {
+            seenPulseSeq_ = pseq;
+            cellPulse_.fire(pcolour, pstrength);
+        }
+    }
     {
         const float silent[3] = { 0.f, 0.f, 0.f };
         cellPulse_.update(dt, havePeerAudio ? bands : silent, havePeerAudio ? level : 0.f);

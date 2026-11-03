@@ -37,7 +37,11 @@
 
 class BarLinkClient : private juce::Timer {
 public:
-    struct Bg { int style = 0; float opacity = 1.0f; int effect = 0; }; // effect: BLK3 (v0.4.5); BLK4 (v0.4.7) adds effect 3 = visualizer Lines
+    struct Bg { int style = 0; float opacity = 1.0f; int effect = 0; // effect: BLK3 (v0.4.5); BLK4 (v0.4.7) adds effect 3 = visualizer Lines
+        // BLK7 (DESIGN §3): the parent's theme/scheme (family ordinals,
+        // -1 = none) + visualizer palette ride the same packet.
+        int theme = -1; int scheme = -1;
+        float palHue = 0.f, palSat = 0.f, palSpread = 0.f, palCycle = 0.f; };
     // Host callbacks (all message-thread).
     std::function<juce::Rectangle<int>()> getBounds;
     std::function<void(juce::Rectangle<int>)> setBounds;   // position apply (size preserved by the rect itself)
@@ -47,6 +51,17 @@ public:
     std::function<bool()> isLinked;
     std::function<bool()> bgLinkEnabled; // v0.4.5: the host's "Link background" toggle; empty = enabled
     std::function<void(float out[5])> getAudio; // BLK5 (v0.4.13): + stereo balance at [4] // v0.3.0 item 17: band energies [low,mid,high] + level (MeterBar wires this; the others leave it empty)
+    // BLK7 (DESIGN §6d): link-edge host hooks. onLinkEdge(true) fires
+    // on the OFF->ON tick BEFORE any adoption can land (the host
+    // snapshots its appearance there); onLinkEdge(false) fires on
+    // the ON->OFF tick (the host restores appearance + any Link All
+    // geometry snapshot). onLinkAllForming fires when a Link All
+    // request is consumed, before any move (geometry snapshot);
+    // setLinkEnabled turns the host's link on for Link All (the host
+    // persists it exactly as its own toggle does).
+    std::function<void(bool)> onLinkEdge;
+    std::function<void()> onLinkAllForming;
+    std::function<void(bool)> setLinkEnabled;
 
     explicit BarLinkClient(int appId) : appId_(appId) {}
     ~BarLinkClient() override { stop(); }
@@ -55,7 +70,14 @@ public:
 
     void start() {
         openShared();
-        if (shared_) startTimerHz(30);
+        if (shared_) {
+            // BLK7: only Link All requests stamped AFTER this start
+            // are consumed — a stale request in a surviving block
+            // must not re-form the group on every restart.
+            sessionbar::LinkShared snap;
+            if (readShared(snap)) seenLinkAllSeq_ = snap.linkAllSeq;
+            startTimerHz(30);
+        }
     }
     void stop() {
         stopTimer();
@@ -139,10 +161,53 @@ public:
 #if JUCE_WINDOWS
         Lock lock{ mutex_ };
         if (shared_->magic == sessionbar::kLinkMagic) {
-            shared_->nextLinkSeq += 1;
-            myLinkSeq_ = shared_->nextLinkSeq;
+            // BLK7 claim restore (DESIGN §4, core claimFor): a claim
+            // stored from before a restart is re-stamped when no live
+            // member holds it, so parentage survives the parent's
+            // restart while the group lives; otherwise a fresh claim.
+            const unsigned restored = sessionbar::claimFor(*shared_, appId_);
+            if (restored != 0) {
+                myLinkSeq_ = restored;
+                if (shared_->nextLinkSeq < myLinkSeq_) shared_->nextLinkSeq = myLinkSeq_;
+            } else {
+                shared_->nextLinkSeq += 1;
+                myLinkSeq_ = shared_->nextLinkSeq;
+            }
+            shared_->lastClaim[(size_t)appId_] = myLinkSeq_;
             shared_->slots[(size_t)appId_].appId = appId_;
             shared_->slots[(size_t)appId_].linkSeq = myLinkSeq_;
+        }
+#endif
+    }
+
+    // BLK7 (DESIGN §4): the deliberate link OFF edge clears the
+    // stored claim in the block, so unlink->relink claims fresh and
+    // returns as a late joiner (BLK6 semantics). A peer-assisted
+    // write is fine — the block is shared. stop()/destructor must
+    // NOT call this: a crash/quit/restart without an OFF edge keeps
+    // the claim.
+    void clearClaimOnOffEdge() {
+        if (!shared_) return;
+#if JUCE_WINDOWS
+        Lock lock{ mutex_ };
+        if (shared_->magic == sessionbar::kLinkMagic) shared_->lastClaim[(size_t)appId_] = 0;
+#endif
+    }
+
+    // BLK7 LINK ALL initiation (DESIGN §6a): stamp the request under
+    // the block mutex, reserving three claims (base+appId+1 per app,
+    // so MeterBar is the parent by construction). `area` is the
+    // display bounds the stack docks into, computed by the host.
+    void requestLinkAll(int edgeOrdinal, juce::Rectangle<int> area) {
+        if (!shared_) return;
+#if JUCE_WINDOWS
+        Lock lock{ mutex_ };
+        if (shared_->magic == sessionbar::kLinkMagic) {
+            shared_->linkAllSeq += 1;
+            shared_->linkAllEdge = edgeOrdinal == 1 ? 1 : 0; // Top / Bottom only
+            shared_->linkAllArea = toCore(area);
+            shared_->linkAllBaseSeq = shared_->nextLinkSeq;
+            shared_->nextLinkSeq += 3;
         }
 #endif
     }
@@ -205,6 +270,26 @@ public:
         return sessionbar::audioPacket(snap.slots[(size_t)appId], nowMs(), out);
     }
 
+    // BLK7 (DESIGN §7): a peer's pulse stamp (false = not live /
+    // never stamped). The consumer edge-detects on seq.
+    bool peerPulse(int appId, unsigned& seq, int& colour, float& strength) {
+        if (!shared_ || appId < 0 || appId > 2) return false;
+        sessionbar::LinkShared snap;
+        if (!readShared(snap)) return false;
+        return sessionbar::pulsePacket(snap.slots[(size_t)appId], nowMs(), seq, colour, strength);
+    }
+
+    // A peer's live slot rect (empty when the peer is not live) —
+    // the Link All host area rule reads MeterBar's rect from here.
+    juce::Rectangle<int> peerRect(int appId) {
+        if (!shared_ || appId < 0 || appId > 2) return {};
+        sessionbar::LinkShared snap;
+        if (!readShared(snap)) return {};
+        const auto& sl = snap.slots[(size_t)appId];
+        if (!sessionbar::slotLive(sl, nowMs()) || sl.rect.w <= 0 || sl.rect.h <= 0) return {};
+        return toJuce(sl.rect);
+    }
+
     // Live + linked peer count (the host's Stack button enablement).
     int liveLinkedPeers() {
         if (!shared_) return 0;
@@ -250,9 +335,42 @@ private:
         // a FOLLOWER joining a group with a live parent must not
         // re-stamp over the parent's background; refreshBgOnLinkJoin
         // makes it adopt the parent's standing packet instead.
-        const bool linkedNow = isLinked && isLinked();
-        if (linkedNow && !wasLinked_) { claimLinkSeq(); refreshBgOnLinkJoin(); }
-        if (!linkedNow && wasLinked_) myLinkSeq_ = 0;
+        bool linkedNow = isLinked && isLinked();
+        // BLK7 LINK ALL consumption (DESIGN §6b) — every client incl.
+        // the initiator, on its tick: snapshot geometry (host), turn
+        // the link on if off (host), take the by-construction claim
+        // (base+appId+1: MeterBar is the parent, no race), then apply
+        // the planned target after the slot re-stamp below.
+        bool linkAllClaimed = false;
+        bool haveLinkAllTargets = false;
+        sessionbar::IntRect linkAllTargets[3];
+        {
+            sessionbar::LinkShared early;
+            if (readShared(early) && early.linkAllSeq != 0 && early.linkAllSeq != seenLinkAllSeq_) {
+                seenLinkAllSeq_ = early.linkAllSeq;
+                if (onLinkAllForming) onLinkAllForming(); // BEFORE any move (§6d)
+                if (!linkedNow && setLinkEnabled) { setLinkEnabled(true); linkedNow = isLinked && isLinked(); }
+                myLinkSeq_ = early.linkAllBaseSeq + (unsigned)appId_ + 1;
+                linkAllClaimed = true;
+#if JUCE_WINDOWS
+                if (shared_) {
+                    Lock lock{ mutex_ };
+                    if (shared_->magic == sessionbar::kLinkMagic) {
+                        shared_->lastClaim[(size_t)appId_] = myLinkSeq_;
+                        shared_->slots[(size_t)appId_].appId = appId_;
+                        shared_->slots[(size_t)appId_].linkSeq = myLinkSeq_;
+                    }
+                }
+#endif
+                haveLinkAllTargets = sessionbar::planLinkAll(early, now, early.linkAllEdge, early.linkAllArea, linkAllTargets) > 0;
+            }
+        }
+        if (linkedNow && !wasLinked_) {
+            if (onLinkEdge) onLinkEdge(true); // DESIGN §6d: host snapshots appearance BEFORE the first adoption can land
+            if (!linkAllClaimed) claimLinkSeq(); // a Link All claim is already stamped — the normal edge must not fresh-claim over it (§6b step 4)
+            refreshBgOnLinkJoin();
+        }
+        if (!linkedNow && wasLinked_) { clearClaimOnOffEdge(); myLinkSeq_ = 0; if (onLinkEdge) onLinkEdge(false); }
         wasLinked_ = linkedNow;
         publishBg();
         sessionbar::LinkShared snap;
@@ -289,8 +407,19 @@ private:
         // order let a live peer drag postpone adoption indefinitely)
         {
             sessionbar::BgPacket pkt;
-            if (bgLinkOn() && sessionbar::bgAdoption(snap, appId_, bgSync_, now, pkt) && applyBg)
-                applyBg(Bg{ pkt.style, pkt.opacityPct / 100.0f, pkt.effect });
+            if (bgLinkOn() && sessionbar::bgAdoption(snap, appId_, bgSync_, now, pkt) && applyBg) {
+                Bg b{ pkt.style, pkt.opacityPct / 100.0f, pkt.effect };
+                b.theme = pkt.theme; b.scheme = pkt.scheme; // BLK7 (§3)
+                b.palHue = pkt.palHue; b.palSat = pkt.palSat; b.palSpread = pkt.palSpread; b.palCycle = pkt.palCycle;
+                applyBg(b);
+            }
+        }
+        // --- BLK7 Link All target (§6b step 5): this bar's planned
+        // rect from the request consumed at the top of this tick ---
+        if (haveLinkAllTargets && linkAllTargets[(size_t)appId_].w > 0
+            && !sameRect(linkAllTargets[(size_t)appId_], mine.rect)) {
+            applyRemote(linkAllTargets[(size_t)appId_]);
+            mine.rect = linkAllTargets[(size_t)appId_];
         }
         // --- one-click stack requests (item 12): a peer's fresh
         // stackSeq moves this bar to its planned target ---
@@ -334,7 +463,10 @@ private:
         // groupDockFollows): with both bars docked, each stacks
         // against the other's latest rect and the pair chases forever
         // at tick rate — the 2026-10-29 freeze.
-        if (sessionbar::groupDockFollows(mine.dockedEdge)) {
+        // BLK7 (§5): the group PARENT is exempt from the automatic
+        // group-dock — a follower joining docked no longer drags its
+        // parent. groupDockMovesSelf is the core predicate.
+        if (sessionbar::groupDockFollows(mine.dockedEdge) && sessionbar::groupDockMovesSelf(snap, appId_, myLinkSeq_, now)) {
         for (auto& s : snap.slots) {
             if (s.appId < 0 || s.appId == appId_ || !s.linked || s.dockedEdge < 0 || !sessionbar::slotLive(s, now)) continue;
             auto target = sessionbar::groupDockRect(s.rect, mine.rect, (sessionbar::DockArg)s.dockedEdge);
@@ -360,8 +492,10 @@ private:
         // Core gate: publish ONLY a value this app has not already
         // published or adopted (adopted values are recorded in
         // bgSync_ by bgAdoption, so an adoption is never re-published
-        // as a local change — the v0.2.0 echo).
-        if (!sessionbar::bgIsLocalChange(bgSync_, bg.style, pct, bg.effect)) return;
+        // as a local change — the v0.2.0 echo). BLK7: the gate covers
+        // all nine packet fields (§3).
+        if (!sessionbar::bgIsLocalChange(bgSync_, bg.style, pct, bg.effect, bg.theme, bg.scheme,
+                                         bg.palHue, bg.palSat, bg.palSpread, bg.palCycle)) return;
         sessionbar::LinkShared snap;
         if (!readShared(snap)) return;
         sessionbar::LinkSlot mine = snap.slots[(size_t)appId_];
@@ -371,9 +505,14 @@ private:
         mine.bgStyle = bg.style;
         mine.bgOpacityPct = pct;
         mine.bgEffect = bg.effect;
+        mine.bgTheme = bg.theme; mine.bgScheme = bg.scheme; // BLK7
+        mine.bgPalHue = bg.palHue; mine.bgPalSat = bg.palSat; mine.bgPalSpread = bg.palSpread; mine.bgPalCycle = bg.palCycle;
         mine.bgSeq += 1;
         writeSlot(mine);
         bgSync_.publishedStyle = bg.style; bgSync_.publishedPct = pct; bgSync_.publishedEffect = bg.effect;
+        bgSync_.publishedTheme = bg.theme; bgSync_.publishedScheme = bg.scheme;
+        bgSync_.publishedPalHue = bg.palHue; bgSync_.publishedPalSat = bg.palSat;
+        bgSync_.publishedPalSpread = bg.palSpread; bgSync_.publishedPalCycle = bg.palCycle;
     }
 
     // --- shared-memory plumbing ---
@@ -435,6 +574,7 @@ private:
     std::tuple<int, int, int, int, int, int> dockKey_{ -1, -1, 0, 0, 0, 0 };
     sessionbar::BgSyncState bgSync_;
     unsigned myLinkSeq_ = 0;              // BLK6: this bar's claimed join-order stamp (0 = unlinked)
+    unsigned seenLinkAllSeq_ = 0;         // BLK7: last Link All request consumed (seeded at start())
     bool wasLinked_ = false;              // item 13: link-edge detection for the forced republish
     unsigned seenStackSeq_[3] = { 0, 0, 0 }; // item 12: last stack request consumed per app // v0.2.1: publish/adopt bookkeeping (core decisions)
 };

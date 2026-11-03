@@ -1,6 +1,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include "MainComponent.h"
+#include "CrashHandler.h" // v0.4.19: hard-crash record + fallback VEH (family crash-log contract)
 #include "SessionBarVersion.h" // v0.4.3: generated — single-source version (root CMakeLists project VERSION)
 #include <sessionbar/WindowGeom.hpp> // v0.3.0: the off-screen restore clamp (item 14)
 class MainWindow : public juce::DocumentWindow {
@@ -56,6 +57,11 @@ public:
     const juce::String getApplicationVersion() override { return sessionbar::kVersionString; }
     bool moreThanOneInstanceAllowed() override { return false; }
     void initialise(const juce::String&) override {
+        // v0.4.19: install the hard-crash handler FIRST — before the
+        // splash and the window — so a crash anywhere later in
+        // startup still leaves its record (crash-*.txt + .dmp in
+        // Documents\SessionBar). Windows-only; a no-op elsewhere.
+        crashhandler::install(sessionbar::kVersionString);
         // JUCE free-license attribution splash (family pattern): small,
         // brief — "Made with JUCE" for ~1.5 s, click dismisses.
         juce::Image splashImg(juce::Image::RGB, 440, 160, true);

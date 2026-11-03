@@ -23,6 +23,7 @@
 #include <sessionbar/Visualizer.hpp>
 #include <sessionbar/Glow.hpp>
 #include <sessionbar/CellPulse.hpp>
+#include <sessionbar/CrashWatch.hpp> // v0.4.19: crash-record naming/notice logic
 #include <sessionbar/Mascot.hpp>
 #include <sessionbar/CellLayout.hpp>
 #include <sessionbar/Glyphs.hpp>
@@ -866,7 +867,7 @@ int main() {
         CHECK(quiet.visibility() == 0.f);
         // BLK5: the magic moved with the widened domain, and the
         // stereo balance rides the audio packet at [4]
-        CHECK(kLinkMagic == 0x424C4B36u); // BLK6
+        CHECK(kLinkMagic == 0x424C4B37u); // BLK7 (v0.4.19: appearance extension + pulse + claim/linkAll appends)
         LinkSlot slot; slot.appId = 1; slot.heartbeatMs = 1000; slot.audioSeq = 3;
         slot.audioLow = 0.1f; slot.audioMid = 0.2f; slot.audioHigh = 0.3f; slot.audioLevel = 0.4f; slot.audioBalance = 0.7f;
         float pkt[5] = { 0, 0, 0, 0, 0 };
@@ -1125,6 +1126,171 @@ int main() {
         CHECK(std::string(sessionbar::glyphSettingsUtf8()) == std::string("\xE2\x9A\x99", 3));
         CHECK(std::string(sessionbar::glyphMenuUtf8()) == encodeUtf8(0x2630));
         CHECK(std::string(sessionbar::glyphMenuUtf8()) == std::string("\xE2\x98\xB0", 3));
+    }
+
+    // ---- v0.4.19 BLK7: extended packet, claim restore, group-dock
+    // exemption, planLinkAll, CellPulse fire, parent-untouched ----
+    {
+        using namespace sessionbar;
+        const long long now = 500000;
+        BgPacket out;
+        // -- adoption carries all nine fields downhill --
+        LinkShared sh;
+        auto& par = sh.slots[0]; par.appId = 0; par.linked = 1; par.heartbeatMs = now; par.linkSeq = 1;
+        par.bgSeq = 5; par.bgStyle = 2; par.bgOpacityPct = 55; par.bgEffect = 3;
+        par.bgTheme = 4; par.bgScheme = 2; par.bgPalHue = 0.25f; par.bgPalSat = 0.5f; par.bgPalSpread = 0.75f; par.bgPalCycle = 12.f;
+        auto& fol = sh.slots[2]; fol.appId = 2; fol.linked = 1; fol.heartbeatMs = now; fol.linkSeq = 2; fol.bgSeq = 1;
+        BgSyncState sy;
+        CHECK(bgAdoption(sh, 2, sy, now, out));
+        CHECK(out.style == 2 && out.opacityPct == 55 && out.effect == 3);
+        CHECK(out.theme == 4 && out.scheme == 2);
+        CHECK(out.palHue == 0.25f && out.palSat == 0.5f && out.palSpread == 0.75f && out.palCycle == 12.f);
+        CHECK(!bgIsLocalChange(sy, 2, 55, 3, 4, 2, 0.25f, 0.5f, 0.75f, 12.f)); // adopted = published: no echo
+        CHECK(!bgAdoption(sh, 2, sy, now, out)); // settled
+        // diverged gate on a NEW field only: theme moves, same bgSeq
+        par.bgTheme = 1;
+        CHECK(bgAdoption(sh, 2, sy, now, out));
+        CHECK(out.theme == 1 && out.scheme == 2);
+        CHECK(!bgAdoption(sh, 2, sy, now, out));
+        // follower-local palette divergence re-adopts the standing packet
+        sy.publishedPalHue = 0.99f;
+        CHECK(bgAdoption(sh, 2, sy, now, out));
+        CHECK(out.palHue == 0.25f);
+        // palette-only local change trips the nine-field gate
+        CHECK(bgIsLocalChange(sy, 2, 55, 3, 1, 2, 0.25f, 0.5f, 0.75f, 13.f));
+        // -- never fires for the parent --
+        BgSyncState syP;
+        CHECK(!bgAdoption(sh, 0, syP, now, out));
+        CHECK(syP.adoptedFrom == -1);
+        // -- claim restore (DESIGN §4) --
+        LinkShared shC;
+        shC.lastClaim[2] = 7; shC.nextLinkSeq = 9;
+        auto& stay = shC.slots[0]; stay.appId = 0; stay.linked = 1; stay.heartbeatMs = now; stay.linkSeq = 3;
+        CHECK(claimFor(shC, 2) == 7); // restart-reclaim: nobody live holds 7
+        stay.linkSeq = 7;             // a live member now holds it
+        CHECK(claimFor(shC, 2) == 0); // live-holder collision -> fresh claim
+        stay.linkSeq = 3;
+        shC.lastClaim[2] = 0;         // deliberate unlink cleared it
+        CHECK(claimFor(shC, 2) == 0); // -> fresh claim (late joiner)
+        CHECK(claimFor(shC, 1) == 0); // never claimed
+        CHECK(claimFor(shC, 5) == 0); // out of range
+        // self's own stale slot holding the claim is not a collision
+        shC.lastClaim[2] = 7; shC.slots[2].appId = 2; shC.slots[2].linked = 1; shC.slots[2].linkSeq = 7;
+        CHECK(claimFor(shC, 2) == 7);
+        // -- group-dock parent exemption (DESIGN §5) --
+        LinkShared shG;
+        auto& gp = shG.slots[0]; gp.appId = 0; gp.linked = 1; gp.heartbeatMs = now; gp.linkSeq = 1; gp.dockedEdge = 0; gp.rect = { 0, 0, 1920, 60 };
+        auto& gf = shG.slots[2]; gf.appId = 2; gf.linked = 1; gf.heartbeatMs = now; gf.linkSeq = 2; gf.rect = { 100, 300, 800, 50 };
+        // parent is app 0; a docked FOLLOWER must not move it:
+        gf.dockedEdge = 0;
+        CHECK(!groupDockMovesSelf(shG, 0, 1, now)); // parent, docked floating peer -> no move
+        gf.dockedEdge = -1;
+        CHECK(groupDockMovesSelf(shG, 2, 2, now));  // follower + docked parent -> move (unchanged)
+        gp.dockedEdge = -1;
+        CHECK(!groupDockMovesSelf(shG, 2, 2, now)); // nobody docked -> no move
+        // -- planLinkAll (DESIGN §6c) --
+        LinkShared shA;
+        const int hs[3] = { 60, 40, 50 };
+        for (int a = 0; a < 3; ++a) { auto& s = shA.slots[a]; s.appId = a; s.linked = (a != 1); s.heartbeatMs = now; s.rect = { 500, 500, 900, hs[a] }; }
+        IntRect tg[3]; IntRect area{ 0, 0, 1920, 1080 };
+        CHECK(planLinkAll(shA, now, 0, area, tg) == 3); // running-but-unlinked middle bar included
+        CHECK(tg[0] == (IntRect{ 0, 0, 1920, 60 }));
+        CHECK(tg[1] == (IntRect{ 0, 60, 1920, 40 }));
+        CHECK(tg[2] == (IntRect{ 0, 100, 1920, 50 }));
+        CHECK(planLinkAll(shA, now, 1, area, tg) == 3);
+        CHECK(tg[2] == (IntRect{ 0, 1030, 1920, 50 })); // SessionBar flush to the bottom
+        CHECK(tg[1] == (IntRect{ 0, 990, 1920, 40 }));
+        CHECK(tg[0] == (IntRect{ 0, 930, 1920, 60 }));  // visual order stays 0,1,2
+        // middle bar absent (not running): heights preserved, no gap filler
+        shA.slots[1].heartbeatMs = 0; shA.slots[1].appId = -1;
+        CHECK(planLinkAll(shA, now, 0, area, tg) == 2);
+        CHECK(tg[1].w == 0);
+        CHECK(tg[2] == (IntRect{ 0, 60, 1920, 50 }));
+        CHECK(planLinkAll(shA, now, 1, area, tg) == 2);
+        CHECK(tg[2] == (IntRect{ 0, 1030, 1920, 50 }));
+        CHECK(tg[0] == (IntRect{ 0, 970, 1920, 60 }));
+        // only MeterBar
+        shA.slots[2].heartbeatMs = 0; shA.slots[2].appId = -1;
+        CHECK(planLinkAll(shA, now, 0, area, tg) == 1);
+        CHECK(tg[0] == (IntRect{ 0, 0, 1920, 60 }) && tg[2].w == 0);
+        CHECK(planLinkAll(shA, now, 0, IntRect{}, tg) == 0); // degenerate area
+        // -- pulsePacket mirrors audioPacket --
+        LinkSlot ps; ps.appId = 0; ps.heartbeatMs = now; ps.pulseSeq = 4; ps.pulseColour = 0x112233; ps.pulseStrength = 0.6f;
+        unsigned pq = 0; int pc = 0; float pt = 0.f;
+        CHECK(pulsePacket(ps, now, pq, pc, pt));
+        CHECK(pq == 4 && pc == 0x112233 && pt == 0.6f);
+        ps.pulseSeq = 0;
+        CHECK(!pulsePacket(ps, now, pq, pc, pt));
+        // -- CellPulse fire (DESIGN §7) --
+        CellPulse fp;
+        CHECK(!fp.firedColourLive());
+        fp.fire(0x112233, 0.2f);              // quiet hit floored at 0.35
+        CHECK(fp.pump() == 0.35f);
+        CHECK(fp.firedColour() == 0x112233 && fp.firedColourLive());
+        CHECK(fp.glow() >= 0.35f);            // a fired pulse reads even in silence
+        CellPulse fp2; fp2.fire(0xFF0000, 0.9f);
+        CHECK(fp2.pump() == 0.9f);
+        CellPulse fp3; fp3.fire(0x00FF00, 5.f); // clamped to 1
+        CHECK(fp3.pump() == 1.f);
+        const float zeroB[3] = { 0.f, 0.f, 0.f };
+        for (int i = 0; i < 120; ++i) fp2.update(1.f / 30.f, zeroB, 0.f);
+        CHECK(!fp2.firedColourLive());       // pump died -> colour no longer spent
+        CHECK(fp2.glow() < 0.05f);
+        // -- parent-untouched scenario (DESIGN §10): join -> follower
+        // change -> parent; the parent's sync state and published
+        // packet are untouched and no adoption ever fires for it --
+        LinkShared shU;
+        auto& up = shU.slots[0]; up.appId = 0; up.linked = 1; up.heartbeatMs = now; up.linkSeq = 1;
+        up.bgSeq = 3; up.bgStyle = 1; up.bgOpacityPct = 80; up.bgEffect = 2;
+        up.bgTheme = 3; up.bgScheme = 1; up.bgPalHue = 0.1f; up.bgPalSat = 0.2f; up.bgPalSpread = 0.3f; up.bgPalCycle = 9.f;
+        auto& uf = shU.slots[2]; uf.appId = 2; uf.linked = 1; uf.heartbeatMs = now; uf.linkSeq = 2; uf.bgSeq = 1;
+        BgSyncState parentSync, followerSync;
+        parentSync.publishedStyle = 1; parentSync.publishedPct = 80; parentSync.publishedEffect = 2;
+        parentSync.publishedTheme = 3; parentSync.publishedScheme = 1;
+        parentSync.publishedPalHue = 0.1f; parentSync.publishedPalSat = 0.2f; parentSync.publishedPalSpread = 0.3f; parentSync.publishedPalCycle = 9.f;
+        const BgSyncState parentBefore = parentSync;
+        const LinkSlot parentSlotBefore = up;
+        CHECK(bgAdoption(shU, 2, followerSync, now, out));       // follower joins + adopts
+        CHECK(!bgAdoption(shU, 0, parentSync, now, out));        // parent: no adoption
+        followerSync.publishedStyle = 0; followerSync.publishedTheme = 5; // follower local change (its publish records it)
+        CHECK(bgAdoption(shU, 2, followerSync, now, out));       // parent's standing packet re-adopted downhill
+        CHECK(!bgAdoption(shU, 0, parentSync, now, out));        // parent STILL untouched
+        CHECK(parentSync.publishedStyle == parentBefore.publishedStyle && parentSync.publishedTheme == parentBefore.publishedTheme
+              && parentSync.adoptedFrom == -1 && parentSync.adoptedLinkSeq == 0);
+        CHECK(up.bgStyle == parentSlotBefore.bgStyle && up.bgTheme == parentSlotBefore.bgTheme && up.bgSeq == parentSlotBefore.bgSeq);
+        // -- CrashWatch (family crash-log contract) --
+        CrashTimeParts ct; ct.year = 2026; ct.month = 11; ct.day = 3; ct.hour = 14; ct.minute = 5; ct.second = 9;
+        CHECK(crashFileStem(ct) == "crash-2026-11-03_140509");
+        CHECK(crashTextName(ct) == "crash-2026-11-03_140509.txt");
+        CHECK(crashDumpName(ct) == "crash-2026-11-03_140509.dmp");
+        CHECK(isCrashTextName("crash-2026-11-03_140509.txt"));
+        CHECK(!isCrashTextName("crash-2026-11-03_140509.dmp"));
+        CHECK(seenMarkerFor("crash-2026-11-03_140509.txt") == "crash-2026-11-03_140509.txt.seen");
+        CHECK(isSeenMarkerName("crash-2026-11-03_140509.txt.seen"));
+        auto unseen = unseenCrashes({ "crash-2026-11-03_140509.txt", "crash-2026-11-02_090000.txt",
+                                      "crash-2026-11-02_090000.txt.seen", "notes.txt" });
+        CHECK(unseen.size() == 1);
+        if (unseen.size() == 1) CHECK(unseen[0] == "crash-2026-11-03_140509.txt");
+        auto rec = crashRecordText("0.4.19", "10.0 build 26200", "2026-11-03_140509", 0xC0000374ul, "0x00007fff00000000", "theme: Daylight\n");
+        CHECK(rec.find("SessionBar crash record") != std::string::npos);
+        CHECK(rec.find("app version: 0.4.19") != std::string::npos);
+        CHECK(rec.find("exception: 0xc0000374") != std::string::npos);
+        CHECK(rec.find("theme: Daylight") != std::string::npos);
+        auto recEmpty = crashRecordText("0.4.19", "10.0 build 26200", "2026-11-03_140509", 0ul, "0x0", "");
+        CHECK(recEmpty.find("(none recorded)") != std::string::npos);
+        // fallback route: WER CrashDumps harvest selection
+        CHECK(isHarvestedDumpName("SessionBar.exe.12345.dmp"));
+        CHECK(!isHarvestedDumpName("MeterBar.exe.12345.dmp"));
+        CHECK(!isHarvestedDumpName("crash-2026-11-03_140509.dmp")); // our own handler's dump is not a harvest candidate
+        CHECK(!isHarvestedDumpName("SessionBar.exe.12345.txt"));
+        auto toHarvest = crashDumpsToHarvest({ "SessionBar.exe.111.dmp", "SessionBar.exe.222.dmp", "Other.exe.9.dmp", "notes.txt" },
+                                             { "SessionBar.exe.111.dmp", "crash-2026-11-03_140509.txt" });
+        CHECK(toHarvest.size() == 1);
+        if (toHarvest.size() == 1) CHECK(toHarvest[0] == "SessionBar.exe.222.dmp"); // already-harvested is never re-copied
+        auto unseenDumps = unseenHarvestedDumps({ "SessionBar.exe.222.dmp", "SessionBar.exe.333.dmp", "SessionBar.exe.333.dmp.seen" });
+        CHECK(unseenDumps.size() == 1);
+        if (unseenDumps.size() == 1) CHECK(unseenDumps[0] == "SessionBar.exe.222.dmp"); // .seen sibling dismisses, once per file
+        CHECK(dumpSeenMarkerFor("SessionBar.exe.222.dmp") == "SessionBar.exe.222.dmp.seen");
     }
 
     std::printf("%d checks, %d failures\n", checks, failures);
