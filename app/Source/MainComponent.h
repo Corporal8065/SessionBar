@@ -220,8 +220,8 @@ private:
     juce::PopupMenu buildRepositionSubMenu();
     void doMoveToDisplay(int idx);
     void savePresetInteractive(bool saveAs);
-    void promptForPresetNameAsync(std::function<void(bool)> done); // v0.4.20: the close gate's name prompt (sets state.activePresetName on success)
-    void finishSaveAndQuit(); // v0.4.20: the close prompt's Save path — preset + settings, then quit
+    void performSave(bool saveAs, std::function<void(bool)> done); // v0.4.21: THE save function — the menu's Save / Save As and the close prompt's Save / Save As all route through it (Jackson's refinement: one kind of function for every save)
+    void promptForPresetNameAsync(std::function<void(bool)> done); // v0.4.20: the shared name prompt inside performSave (sets state.activePresetName on success)
     void loadPresetFile(const juce::File& f);
     void applyWindowRectFromState();
     // animated backgrounds (items 7/17) + mascot (item 18)

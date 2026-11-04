@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.22)
 # (the same defect as TickerBar's stuck-on-0.4.0, Fiona's report); do
 # not add another copy. Bump it here, only here. (MeterBar made this
 # move at its v0.19.)
-project(SessionBar VERSION 0.4.20 LANGUAGES C CXX)
+project(SessionBar VERSION 0.4.21 LANGUAGES C CXX)
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/app/SessionBarVersion.h.in
                ${CMAKE_BINARY_DIR}/generated/SessionBarVersion.h)
 # Static MSVC runtime (/MT) so a built SessionBar.exe runs on any

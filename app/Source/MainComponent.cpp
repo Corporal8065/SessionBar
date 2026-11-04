@@ -1338,27 +1338,40 @@ void MainComponent::showMainMenu() {
         }
     });
 }
-void MainComponent::savePresetInteractive(bool saveAs) {
+// v0.4.21: THE save function — one path for every preset save in
+// the app (Jackson's refinement, 2026-11-03 ~16:03 PT: save, save
+// as, and don't-save go "all through the same kind of function").
+// The Presets menu's Save / Save As and the close prompt's Save /
+// Save As all call performSave(); callers differ only in what they
+// do with the answer. saveAs=false writes the current state into
+// the active preset (asking for a name first when none is active);
+// saveAs=true always asks. done(true) = state saved (preset +
+// settings + live window rect); done(false) = the name prompt was
+// cancelled and nothing was written.
+void MainComponent::performSave(bool saveAs, std::function<void(bool)> done) {
     saveSettings(); // refresh the live window rect into state first — a preset includes position
-    if (!saveAs && !state.activePresetName.empty()) { presetio::save(state, juce::String(state.activePresetName)); return; }
-    auto w = std::make_shared<juce::AlertWindow>("Save Preset", "Preset name:", juce::AlertWindow::NoIcon);
-    w->addTextEditor("name", state.activePresetName.empty() ? juce::String("My Preset") : juce::String(state.activePresetName));
-    w->addButton("Save", 1); w->addButton("Cancel", 0);
-    w->enterModalState(true, juce::ModalCallbackFunction::create([this, w](int r) {
-        if (r == 1) {
-            state.activePresetName = w->getTextEditorContents("name").toStdString();
-            presetio::save(state, juce::String(state.activePresetName));
-            saveSettings(); // v0.4.20: persist the new active name at once (it used to ride a later save by luck)
-        }
-    }));
+    if (!saveAs && !state.activePresetName.empty()) {
+        presetio::save(state, juce::String(state.activePresetName));
+        done(true);
+        return;
+    }
+    promptForPresetNameAsync([this, done](bool named) {
+        if (!named) { done(false); return; }
+        presetio::save(state, juce::String(state.activePresetName));
+        saveSettings(); // persist the (new) active name at once — it used to ride a later save by luck
+        done(true);
+    });
+}
+void MainComponent::savePresetInteractive(bool saveAs) {
+    performSave(saveAs, [](bool) {}); // the menu's Save / Save As — the same function the close prompt uses
 }
 // v0.4.20: the close-time save prompt (Jackson's ruling, 2026-11-03 —
 // save on close ONLY if something changed since the app opened; a
 // save restores the same position and size on the next open). JUCE 8
 // has no modal loop, so the gate is async in the family's
 // enterModalState idiom: requestClose() either quits at once
-// (unchanged) or opens the prompt, and the prompt's callback issues
-// the quit itself — Cancel simply never issues it.
+// (unchanged) or opens the prompt, and the prompt's answer completes
+// the quit itself.
 void MainComponent::promptForPresetNameAsync(std::function<void(bool)> done) {
     auto w = std::make_shared<juce::AlertWindow>("Save Preset", "Preset name:", juce::AlertWindow::NoIcon);
     w->addTextEditor("name", state.activePresetName.empty() ? juce::String("My Preset") : juce::String(state.activePresetName));
@@ -1371,11 +1384,6 @@ void MainComponent::promptForPresetNameAsync(std::function<void(bool)> done) {
         }
         done(false);
     }));
-}
-void MainComponent::finishSaveAndQuit() {
-    presetio::save(state, juce::String(state.activePresetName));
-    saveSettings(); // settings + geometry + active name persist for the next open
-    juce::JUCEApplication::getInstance()->quit();
 }
 void MainComponent::requestClose() {
     if (closePromptOpen_) return; // the prompt is already up — a second request adds nothing
@@ -1391,24 +1399,21 @@ void MainComponent::requestClose() {
     auto w = std::make_shared<juce::AlertWindow>("Close SessionBar",
         "The settings, the active preset, or the bar's position/size changed since you opened SessionBar.\n\nSave the current state before closing?",
         juce::AlertWindow::QuestionIcon);
+    // Exactly three actions (Jackson's refinement, 2026-11-03 ~16:03
+    // PT): Save / Save As / Continue Without Saving. There is
+    // deliberately no Cancel button — dismissing the prompt (Esc)
+    // still aborts the close, it just isn't a fourth action.
     w->addButton("Save", 1);
     w->addButton("Save As...", 2);
-    w->addButton("Close Without Saving", 3);
-    w->addButton("Cancel", 0);
+    w->addButton("Continue Without Saving", 3);
     w->enterModalState(true, juce::ModalCallbackFunction::create([this, w](int r) {
         closePromptOpen_ = false;
-        if (r == 1 || r == 2) {
-            // Save into the active preset; with none active (or on an
-            // explicit Save As) ask for the name first — a cancelled
-            // name prompt vetoes the close rather than saving halfway.
-            if (r == 2 || state.activePresetName.empty()) {
-                promptForPresetNameAsync([this](bool named) { if (named) finishSaveAndQuit(); });
-                return;
-            }
-            finishSaveAndQuit();
-        }
+        // Both saves route through the ONE save function; a cancelled
+        // name prompt inside it vetoes the close (saved=false).
+        if (r == 1) performSave(false, [this](bool saved) { if (saved) juce::JUCEApplication::getInstance()->quit(); });
+        else if (r == 2) performSave(true, [this](bool saved) { if (saved) juce::JUCEApplication::getInstance()->quit(); });
         else if (r == 3) { discardOnClose_ = true; juce::JUCEApplication::getInstance()->quit(); } // the destructor writes the baseline back
-        // r == 0 (Cancel / dismissed): stay open — no quit is issued
+        // r == 0 (prompt dismissed): stay open — no quit is issued
     }));
 }
 void MainComponent::loadPresetFile(const juce::File& f) {
