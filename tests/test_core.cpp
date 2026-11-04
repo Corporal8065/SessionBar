@@ -24,6 +24,7 @@
 #include <sessionbar/Glow.hpp>
 #include <sessionbar/CellPulse.hpp>
 #include <sessionbar/CrashWatch.hpp> // v0.4.19: crash-record naming/notice logic
+#include <sessionbar/CloseSave.hpp> // v0.4.20: the close prompt's changed-since-open check
 #include <sessionbar/Mascot.hpp>
 #include <sessionbar/CellLayout.hpp>
 #include <sessionbar/Glyphs.hpp>
@@ -1291,6 +1292,44 @@ int main() {
         CHECK(unseenDumps.size() == 1);
         if (unseenDumps.size() == 1) CHECK(unseenDumps[0] == "SessionBar.exe.222.dmp"); // .seen sibling dismisses, once per file
         CHECK(dumpSeenMarkerFor("SessionBar.exe.222.dmp") == "SessionBar.exe.222.dmp.seen");
+    }
+
+    // ---------- v0.4.20: CloseSave — prompt only when changed since open ----------
+    {
+        const SessionBarState open; // the as-opened baseline (defaults stand in for a loaded file)
+        CHECK(sameState(open, open));
+        CHECK(!changedSinceOpen(open, open)); // unchanged -> silent close, no prompt
+        auto mutated = [](SessionBarState s, auto fn){ fn(s); return s; };
+        // every field, flipped one at a time, must register as a change
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.showLondon = false; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.use24h = true; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.themeName = "Daylight"; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.backgroundStyle = BackgroundStyle::Flat; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.backgroundOpacity = 0.5f; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.pinned = false; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.reserveScreenSpace = true; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.linkEnabled = true; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.linkBackground = false; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.dockEdge = DockEdge::Bottom; })));
+        // geometry alone counts (the ruling names position AND size)
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.windowX += 1; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.windowY += 1; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.windowW += 1; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.windowH += 1; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.clickSounds = true; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.stateColorScheme = 2; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.bgEffect = 1; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.vizStyle = 1; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.vizHue = 0.25f; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.vizCycle = 12.f; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.cellOrder = { "LDN", "NY", "TYO" }; })));
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.cellWidths["NY"] = 320; })));
+        // the active preset's identity is part of the state now
+        CHECK(changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.activePresetName = "Desk"; })));
+        CHECK(!changedSinceOpen(mutated(open, [](SessionBarState& s){ s.activePresetName = "Desk"; }),
+                                mutated(open, [](SessionBarState& s){ s.activePresetName = "Desk"; })));
+        // a change reverted exactly is no change (document semantics)
+        CHECK(!changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.windowX += 40; s.windowX -= 40; })));
     }
 
     std::printf("%d checks, %d failures\n", checks, failures);

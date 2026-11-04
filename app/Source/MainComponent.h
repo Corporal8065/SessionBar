@@ -8,6 +8,7 @@
 #include <sessionbar/Visualizer.hpp>
 #include <sessionbar/Glow.hpp>
 #include <sessionbar/CellPulse.hpp> // v0.4.16: the MeterBar-mechanic cell envelope (items 1/2)
+#include <sessionbar/CloseSave.hpp> // v0.4.20: the close prompt's changed-since-open check
 #include "TextPop.h" // v0.4.16: corrected-geometry text pop (item 6)
 #include <sessionbar/Mascot.hpp>
 #include <sessionbar/Glyphs.hpp> // v0.4.10: icon glyphs as explicit UTF-8 bytes
@@ -148,6 +149,13 @@ public:
     bool cellDragEnd(juce::Component* cell, const juce::MouseEvent& e);
     void settingsChanged(); // apply + persist (theme, cells, pin, reserve)
     void resetSettingsToDefaults(); // v0.4.16 (item 5): Settings "Reset settings to defaults" — factory SessionBarState, applied live
+    // v0.4.20: the close-time save prompt (Jackson's ruling, 2026-11-03).
+    // Called by the app on EVERY quit request instead of quit():
+    // unchanged since open → quits at once, silently; changed → the
+    // Save / Save As... / Close Without Saving / Cancel prompt, whose
+    // answer completes (or vetoes) the quit. Async because JUCE 8 has
+    // no modal loop — the prompt's callback issues the quit itself.
+    void requestClose();
     void onBgLinkToggled(); // v0.4.5: Settings "Link background" flipped — re-stamp for peers when it turns on
     void notifyWindowGeometryChanged(); // MainWindow moved/resized feed (reserve machine events)
     void snapToDockEdge();
@@ -212,6 +220,8 @@ private:
     juce::PopupMenu buildRepositionSubMenu();
     void doMoveToDisplay(int idx);
     void savePresetInteractive(bool saveAs);
+    void promptForPresetNameAsync(std::function<void(bool)> done); // v0.4.20: the close gate's name prompt (sets state.activePresetName on success)
+    void finishSaveAndQuit(); // v0.4.20: the close prompt's Save path — preset + settings, then quit
     void loadPresetFile(const juce::File& f);
     void applyWindowRectFromState();
     // animated backgrounds (items 7/17) + mascot (item 18)
@@ -250,7 +260,16 @@ private:
     juce::ComponentDragger dragger_;
     juce::Rectangle<int> lastSavedBounds_;
     bool vertical_ = false;
-    juce::String lastPresetName_;
+    // v0.4.20: the active preset's name lives in state.activePresetName
+    // now (persisted; it was this RAM-only member before). The close
+    // prompt's baseline: the state as captured on the first 1 Hz tick
+    // (post-load, post window placement), plus the discard flag the
+    // destructor honours when the prompt's answer was Close Without
+    // Saving (it writes the baseline back over the auto-saved file).
+    sessionbar::SessionBarState openBaseline_;
+    bool openBaselineCaptured_ = false;
+    bool discardOnClose_ = false;
+    bool closePromptOpen_ = false; // a second quit request while the prompt is up is ignored
     std::map<std::string, sessionbar::SessionState> prevStates_; // mascot transition triggers
     // reorder gesture state
     juce::Component* dragCell_ = nullptr;

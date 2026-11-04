@@ -41,6 +41,7 @@ inline juce::var toVar(const sessionbar::SessionBarState& s) {
     auto* widthsObj = new juce::DynamicObject();
     for (auto& kv : s.cellWidths) widthsObj->setProperty(juce::String(kv.first), kv.second);
     set("cellWidths", juce::var(widthsObj));
+    set("activePreset", juce::String(s.activePresetName)); // v0.4.20: persists across restart (was RAM-only)
     return juce::var(o);
 }
 inline sessionbar::SessionBarState fromVar(const juce::var& v) {
@@ -89,6 +90,7 @@ inline sessionbar::SessionBarState fromVar(const juce::var& v) {
             if (w >= 40 && w <= 1200) s.cellWidths[prop.name.toString().toStdString()] = w;
         }
     }
+    s.activePresetName = g("activePreset").toString().toStdString(); // v0.4.20 (absent in older files -> empty = no active preset)
     return s;
 }
 inline sessionbar::SessionBarState load() {

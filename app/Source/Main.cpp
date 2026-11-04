@@ -40,6 +40,9 @@ public:
         setVisible(true);
     }
     void closeButtonPressed() override { juce::JUCEApplication::getInstance()->systemRequestedQuit(); }
+    // v0.4.20: the close-time save prompt lives in the content — it
+    // owns the quit decision (silent quit, or prompt then quit).
+    void requestClose() { if (content != nullptr) content->requestClose(); }
     // The reserve machine is EVENT-driven (MeterBar v0.18.1 discipline):
     // the window's own moved/resized notifications are its geometry
     // feed — these fire for native drags and border resizes too.
@@ -79,7 +82,14 @@ public:
         mainWindow = std::make_unique<MainWindow>("SessionBar");
     }
     void shutdown() override { mainWindow.reset(); }
-    void systemRequestedQuit() override { quit(); }
+    void systemRequestedQuit() override {
+        // v0.4.20: route EVERY quit request (close button, Menu Quit,
+        // OS request) through the save prompt — unchanged since open
+        // closes silently, changed asks first (Jackson's ruling,
+        // 2026-11-03). The prompt completes the quit itself.
+        if (mainWindow != nullptr) mainWindow->requestClose();
+        else quit();
+    }
 private:
     std::unique_ptr<MainWindow> mainWindow;
     juce::SplashScreen* splash = nullptr; // self-deleting — never delete via this pointer

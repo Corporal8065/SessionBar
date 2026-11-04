@@ -39,5 +39,10 @@ struct SessionBarState {
     float vizHue = 0.83f, vizSat = 0.85f, vizSpread = 0.75f, vizCycle = 24.f; // visualizer/glow palette
     std::vector<std::string> cellOrder = { "NY", "LDN", "TYO" }; // v0.3.0: drag-reorderable cell order (ids, not display names)
     std::map<std::string, int> cellWidths; // per-session explicit cell width px, keyed by cell id (absent = auto-share)
+    // v0.4.20: which preset is active, persisted in the settings file
+    // (before this the name lived only in a RAM member and a restart
+    // forgot it — the close-time Save had nothing to save into). Not a
+    // user-edited setting: the app sets it on preset load / Save As.
+    std::string activePresetName;
 };
 } // namespace sessionbar

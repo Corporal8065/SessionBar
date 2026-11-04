@@ -663,7 +663,12 @@ MainComponent::MainComponent() {
 
 MainComponent::~MainComponent() {
     stopTimer();
-    saveSettings();
+    // v0.4.20: a Close Without Saving answer restores the open-time
+    // baseline over the settings file (the app auto-saves on every
+    // change, so without this write the discard would not survive).
+    // Preset files are never touched by a discard.
+    if (discardOnClose_) settingsstore::save(openBaseline_);
+    else saveSettings();
     screenSpace_.release();
 }
 
@@ -925,6 +930,10 @@ void MainComponent::timerCallback() {
     refreshCells();
     auto b = currentWindowBounds();
     if (b != lastSavedBounds_ && !b.isEmpty()) { lastSavedBounds_ = b; saveSettings(); }
+    // v0.4.20: capture the close prompt's baseline on the first tick —
+    // by now the loaded state has met the real (clamped) window rect
+    // via the bounds save above, so the snapshot is "as opened".
+    if (!openBaselineCaptured_) { openBaseline_ = state; openBaselineCaptured_ = true; }
 }
 
 juce::Rectangle<int> MainComponent::currentWindowBounds() const {
@@ -966,8 +975,7 @@ void MainComponent::applyChrome() {
 // what resets is the settings, not the window's current bounds
 // (the Menu's New-Preset behaviour, for the same reason).
 void MainComponent::resetSettingsToDefaults() {
-    state = sessionbar::SessionBarState{};
-    lastPresetName_.clear();
+    state = sessionbar::SessionBarState{}; // v0.4.20: also clears the active preset name (it is a state field now)
     settingsChanged();
     if (settingsWin_ && settingsWin_->isVisible()) settingsWin_->content.build();
 }
@@ -1245,7 +1253,7 @@ void MainComponent::doMoveToDisplay(int idx) {
 juce::PopupMenu MainComponent::buildPresetSubMenu(juce::Array<juce::File>& filesOut) {
     juce::PopupMenu m;
     m.addItem(mnPresetNew, "New Preset (defaults)");
-    m.addItem(mnPresetSave, "Save", lastPresetName_.isNotEmpty());
+    m.addItem(mnPresetSave, "Save", !state.activePresetName.empty());
     m.addItem(mnPresetSaveAs, "Save As...");
     m.addItem(mnPresetFolder, "Open Preset Folder");
     m.addSeparator();
@@ -1280,8 +1288,7 @@ void MainComponent::showMainMenu() {
         if (r == mnPresetNew) {
             auto keepTheme = state.themeName;
             state = sessionbar::SessionBarState{};
-            state.themeName = keepTheme;
-            lastPresetName_.clear();
+            state.themeName = keepTheme; // the fresh state also clears the active preset name (v0.4.20: a state field)
             settingsChanged();
         }
         else if (r == mnPresetSave) savePresetInteractive(false);
@@ -1333,15 +1340,75 @@ void MainComponent::showMainMenu() {
 }
 void MainComponent::savePresetInteractive(bool saveAs) {
     saveSettings(); // refresh the live window rect into state first — a preset includes position
-    if (!saveAs && lastPresetName_.isNotEmpty()) { presetio::save(state, lastPresetName_); return; }
+    if (!saveAs && !state.activePresetName.empty()) { presetio::save(state, juce::String(state.activePresetName)); return; }
     auto w = std::make_shared<juce::AlertWindow>("Save Preset", "Preset name:", juce::AlertWindow::NoIcon);
-    w->addTextEditor("name", lastPresetName_.isEmpty() ? juce::String("My Preset") : lastPresetName_);
+    w->addTextEditor("name", state.activePresetName.empty() ? juce::String("My Preset") : juce::String(state.activePresetName));
     w->addButton("Save", 1); w->addButton("Cancel", 0);
     w->enterModalState(true, juce::ModalCallbackFunction::create([this, w](int r) {
         if (r == 1) {
-            lastPresetName_ = w->getTextEditorContents("name");
-            presetio::save(state, lastPresetName_);
+            state.activePresetName = w->getTextEditorContents("name").toStdString();
+            presetio::save(state, juce::String(state.activePresetName));
+            saveSettings(); // v0.4.20: persist the new active name at once (it used to ride a later save by luck)
         }
+    }));
+}
+// v0.4.20: the close-time save prompt (Jackson's ruling, 2026-11-03 —
+// save on close ONLY if something changed since the app opened; a
+// save restores the same position and size on the next open). JUCE 8
+// has no modal loop, so the gate is async in the family's
+// enterModalState idiom: requestClose() either quits at once
+// (unchanged) or opens the prompt, and the prompt's callback issues
+// the quit itself — Cancel simply never issues it.
+void MainComponent::promptForPresetNameAsync(std::function<void(bool)> done) {
+    auto w = std::make_shared<juce::AlertWindow>("Save Preset", "Preset name:", juce::AlertWindow::NoIcon);
+    w->addTextEditor("name", state.activePresetName.empty() ? juce::String("My Preset") : juce::String(state.activePresetName));
+    w->addButton("Save", 1);
+    w->addButton("Cancel", 0);
+    w->enterModalState(true, juce::ModalCallbackFunction::create([this, w, done](int r) {
+        if (r == 1) {
+            auto name = w->getTextEditorContents("name").trim();
+            if (name.isNotEmpty()) { state.activePresetName = name.toStdString(); done(true); return; }
+        }
+        done(false);
+    }));
+}
+void MainComponent::finishSaveAndQuit() {
+    presetio::save(state, juce::String(state.activePresetName));
+    saveSettings(); // settings + geometry + active name persist for the next open
+    juce::JUCEApplication::getInstance()->quit();
+}
+void MainComponent::requestClose() {
+    if (closePromptOpen_) return; // the prompt is already up — a second request adds nothing
+    // Stamp the live rect first: the comparison (and any save) must
+    // see the window as it is NOW, not as last written.
+    auto b = currentWindowBounds();
+    if (!b.isEmpty()) { state.windowX = b.getX(); state.windowY = b.getY(); state.windowW = b.getWidth(); state.windowH = b.getHeight(); }
+    if (!openBaselineCaptured_ || !sessionbar::changedSinceOpen(openBaseline_, state)) {
+        juce::JUCEApplication::getInstance()->quit(); // unchanged since open (or quit inside the first second): silent close
+        return;
+    }
+    closePromptOpen_ = true;
+    auto w = std::make_shared<juce::AlertWindow>("Close SessionBar",
+        "The settings, the active preset, or the bar's position/size changed since you opened SessionBar.\n\nSave the current state before closing?",
+        juce::AlertWindow::QuestionIcon);
+    w->addButton("Save", 1);
+    w->addButton("Save As...", 2);
+    w->addButton("Close Without Saving", 3);
+    w->addButton("Cancel", 0);
+    w->enterModalState(true, juce::ModalCallbackFunction::create([this, w](int r) {
+        closePromptOpen_ = false;
+        if (r == 1 || r == 2) {
+            // Save into the active preset; with none active (or on an
+            // explicit Save As) ask for the name first — a cancelled
+            // name prompt vetoes the close rather than saving halfway.
+            if (r == 2 || state.activePresetName.empty()) {
+                promptForPresetNameAsync([this](bool named) { if (named) finishSaveAndQuit(); });
+                return;
+            }
+            finishSaveAndQuit();
+        }
+        else if (r == 3) { discardOnClose_ = true; juce::JUCEApplication::getInstance()->quit(); } // the destructor writes the baseline back
+        // r == 0 (Cancel / dismissed): stay open — no quit is issued
     }));
 }
 void MainComponent::loadPresetFile(const juce::File& f) {
@@ -1349,7 +1416,7 @@ void MainComponent::loadPresetFile(const juce::File& f) {
     juce::String name;
     if (!presetio::load(f, loaded, name)) return;
     state = loaded;
-    lastPresetName_ = name;
+    state.activePresetName = name.toStdString(); // the loaded preset is the active one (its own name outranks the file's stored activePreset key)
     const auto rect = juce::Rectangle<int>(state.windowX, state.windowY, state.windowW, state.windowH);
     settingsChanged(); // its saveSettings() re-stamps the CURRENT window rect...
     state.windowX = rect.getX(); state.windowY = rect.getY(); // ...so restore the preset's rect, then move
