@@ -1332,6 +1332,71 @@ int main() {
         CHECK(!changedSinceOpen(open, mutated(open, [](SessionBarState& s){ s.windowX += 40; s.windowX -= 40; })));
     }
 
+    // ---------- v0.4.23: group-dock single leader (round-4 port of ----------
+    // ---------- MeterBar's v0.28.14 round-3 fix) ----------
+    {
+        using namespace sessionbar;
+        const long long now = 500000;
+        auto docked = [](LinkShared& sh, int idx, unsigned seq, int edge, long long hb) {
+            auto& s = sh.slots[(size_t)idx];
+            s.appId = idx; s.linked = 1; s.heartbeatMs = hb; s.linkSeq = seq; s.dockedEdge = edge;
+        };
+        // no peers at all -> no leader
+        { LinkShared sh; CHECK(groupDockLeaderSlot(sh, 2, now) == -1); }
+        // one docked peer -> that peer
+        { LinkShared sh; docked(sh, 0, 3, 0, now);
+          CHECK(groupDockLeaderSlot(sh, 2, now) == 0); }
+        // two docked peers -> the senior (smallest linkSeq) wins,
+        // regardless of slot order. The pre-fix client applied BOTH
+        // leaders' targets per tick (one shared dockKey_ can never
+        // match two keys), teleporting the follower between them
+        // forever — the 2026-11-12 sustained post-resize oscillation,
+        // which survived MeterBar v0.28.14 in this bar's client.
+        { LinkShared sh; docked(sh, 0, 2, 0, now); docked(sh, 1, 5, 1, now);
+          CHECK(groupDockLeaderSlot(sh, 2, now) == 0); }
+        { LinkShared sh; docked(sh, 0, 5, 0, now); docked(sh, 1, 2, 1, now);
+          CHECK(groupDockLeaderSlot(sh, 2, now) == 1); }
+        // an unclaimed peer (linkSeq 0) sorts after any claimed peer
+        { LinkShared sh; docked(sh, 0, 0, 0, now); docked(sh, 1, 4, 1, now);
+          CHECK(groupDockLeaderSlot(sh, 2, now) == 1); }
+        // equal claims -> lowest slot wins (deterministic, never alternates)
+        { LinkShared sh; docked(sh, 0, 3, 0, now); docked(sh, 1, 3, 1, now);
+          CHECK(groupDockLeaderSlot(sh, 2, now) == 0); }
+        // self is never its own leader, even when self is docked+senior
+        { LinkShared sh; docked(sh, 2, 1, 0, now);
+          CHECK(groupDockLeaderSlot(sh, 2, now) == -1); }
+        // unlinked / stale / undocked peers are not leaders
+        { LinkShared sh; docked(sh, 0, 1, 0, now); sh.slots[0].linked = 0;
+          CHECK(groupDockLeaderSlot(sh, 2, now) == -1); }
+        { LinkShared sh; docked(sh, 0, 1, 0, now - kPeerStaleMs - 1);
+          CHECK(groupDockLeaderSlot(sh, 2, now) == -1); }
+        { LinkShared sh; docked(sh, 0, 1, -1, now);
+          CHECK(groupDockLeaderSlot(sh, 2, now) == -1); }
+        // app-source pins: the client docks against the single core
+        // leader, and never while its own drag session is live
+        auto readApp = [](const char* rel) {
+            std::string src;
+            const std::string base(rel);
+            const char* prefixes[] = { "", "../", "../../" };
+            for (auto* pre : prefixes) {
+                std::FILE* fh = std::fopen((std::string(pre) + base).c_str(), "rb");
+                if (!fh) continue;
+                char chunk[8192]; std::size_t n;
+                while ((n = std::fread(chunk, 1, sizeof chunk, fh)) > 0) src.append(chunk, n);
+                std::fclose(fh);
+                if (!src.empty()) break;
+            }
+            return src;
+        };
+        const std::string blH = readApp("app/Source/BarLink.h");
+        if (blH.empty()) {
+            std::printf("v0.4.23 app-source pins SKIPPED (app sources not reachable from CWD)\n");
+        } else {
+            CHECK(blH.find("sessionbar::groupDockLeaderSlot(snap, appId_, now)") != std::string::npos);
+            CHECK(blH.find("!sessionbar::dragLive(mine, now)") != std::string::npos);
+        }
+    }
+
     std::printf("%d checks, %d failures\n", checks, failures);
     return failures == 0 ? 0 : 1;
 }
