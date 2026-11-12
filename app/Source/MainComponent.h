@@ -162,7 +162,7 @@ public:
     void cycleDockEdgeFromSettings(); // cycle Top -> Bottom -> Left -> Right + snap (Settings dock control; the bar's Dock button went at v0.4.8 — the Reposition submenu's ticked edges are its direct form)
     void doArrange();
     void doRestore();
-    void doStackAll();                  // v0.3.0 item 12
+    // v0.4.22: doStackAll removed — Link All (doLinkAll) is the one gather
     void doLinkAll(int edgeOrdinal);    // v0.4.19 BLK7 §6: Link All request (0 Top / 1 Bottom)
     void checkForUpdates();             // v0.3.0 item 1
     juce::Colour stateColour(sessionbar::SessionState s) const; // v0.3.0 item 6
